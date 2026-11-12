@@ -1,6 +1,6 @@
 import { b64, unb64, seal, open } from './crypto.mjs';
 export class GitHubRelay {
-  constructor(repo, token, key, fetcher = fetch) {
+  constructor(repo, token, key, fetcher = (...args) => globalThis.fetch(...args)) {
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('Format repo: owner/private-repo');
     this.repo = repo; this.token = token; this.key = key; this.fetcher = fetcher;
     this.root = `https://api.github.com/repos/${repo}`;

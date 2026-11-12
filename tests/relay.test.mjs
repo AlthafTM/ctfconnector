@@ -31,3 +31,7 @@ test('chunked binary and image transfer preserves exact bytes and checks checksu
   await assert.rejects(r.download({ ...meta, chunks: ['../state.json'] }), /Path/);
   await assert.rejects(r.upload(new File([new Uint8Array(21 * 1024 * 1024)], 'large.bin')), /20 MiB/);
 });
+test('default browser fetch keeps its Window/global receiver', async () => {
+ const original=globalThis.fetch;
+ try {globalThis.fetch=function(){assert.equal(this,globalThis);return Promise.resolve(Response.json({private:true,default_branch:'main'}));};const relay=new GitHubRelay('owner/repo','fixture',await keyFromSecret(secret()));await relay.verify();assert.equal(relay.branch,'main');}finally{globalThis.fetch=original;}
+});
