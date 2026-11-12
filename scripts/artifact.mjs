@@ -1,0 +1,12 @@
+import { readFile } from 'node:fs/promises';
+import { basename } from 'node:path';
+import { config } from '../agent/config.mjs';
+import { GitHubRelay } from '../web/relay.mjs';
+import { keyFromSecret } from '../web/crypto.mjs';
+const [id, ...paths] = process.argv.slice(2);
+if (!/^[0-9a-f-]{36}$/.test(id) || !paths.length || paths.length > 10) throw new Error('Usage: node scripts/artifact.mjs <task-uuid> <file> [file...]');
+const cfg = config(), relay = new GitHubRelay(cfg.repo, cfg.token, await keyFromSecret(cfg.secret)); await relay.verify();
+const snapshot = await relay.read('state.json'); if (!Object.hasOwn(snapshot?.value.tasks || {}, id)) throw new Error('Task tidak ditemukan.');
+const files = [];
+for (const path of paths) files.push(await relay.upload(new File([await readFile(path)], basename(path), { type: 'application/octet-stream' })));
+await relay.command('artifact', id, { files }); console.log('Artefak terenkripsi dikirim. Tunggu ack worker.');
