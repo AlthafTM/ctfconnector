@@ -21,7 +21,7 @@ let type, payload;
 if (['draft','note','question','limit'].includes(action)) {
   const text = await readFile(path, 'utf8'); type = { draft: 'transcribe', note: 'operator_note', question: 'question', limit: 'report_limit' }[action]; payload = { text };
 } else if (action === 'account') { type = 'account_handoff'; payload = JSON.parse(await readFile(path, 'utf8')); }
-} else if (action === 'settings') { type = 'operator_settings'; payload = JSON.parse(await readFile(path, 'utf8')); }
+else if (action === 'settings') { type = 'operator_settings'; payload = JSON.parse(await readFile(path, 'utf8')); }
 else if (action === 'take') { type = 'take'; payload = { operationId: task.pending?.id }; }
 else if (action === 'session') { type = 'session'; payload = { url: path }; }
 else if (action === 'result') {
