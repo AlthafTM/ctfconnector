@@ -54,8 +54,9 @@ export function applyCommand(s, c) {
       case 'auto_accept':
         if (typeof p.enabled !== 'boolean') throw new Error('Auto accept harus true/false.');
         t.autoAccept = p.enabled;
-        if (!p.enabled && t.pending?.kind === 'initial' && ['queued','operator'].includes(t.pending.stage) && ['SUBMITTING_PROMPT','WAITING_FOR_OPERATOR'].includes(t.status)) {
-          t.pending = null; t.approvedRevision = null; t.status = 'WAITING_FOR_APPROVAL';
+        if (!p.enabled && t.pending?.kind === 'initial' && ['queued','operator'].includes(t.pending.stage) && ['SUBMITTING_PROMPT','WAITING_FOR_OPERATOR','PAUSED'].includes(t.status)) {
+          t.pending = null; t.approvedRevision = null;
+          if (t.status === 'PAUSED') t.resumeStatus = 'WAITING_FOR_APPROVAL'; else t.status = 'WAITING_FOR_APPROVAL';
         }
         if (t.outgoing && ['DRAFT','APPROVED'].includes(t.outgoing.status)) t.outgoing.status = p.enabled ? 'APPROVED' : 'DRAFT';
         log(s, t, p.enabled ? 'Auto accept aktif untuk teks ke Claude.' : 'Auto accept mati. Teks berikutnya perlu review.'); break;

@@ -133,3 +133,8 @@ test('revising a task archives uncertain outgoing text without replay', () => {
  assert.equal(t.outgoing,null);assert.equal(t.outgoingHistory.at(-1).status,'UNCERTAIN');
  assert.equal(t.status,'SUBMITTING_PROMPT');assert.equal(t.pending.kind,'initial');assert.notEqual(t.pending.text,'Fixture uncertain send');
 });
+test('turning auto accept off while paused keeps the task paused and requires review on resume', () => {
+ const {s,id,t}=create();applyCommand(s,cmd('auto_accept',id,{enabled:true}));applyCommand(s,cmd('pause',id));
+ applyCommand(s,cmd('auto_accept',id,{enabled:false}));assert.equal(t.status,'PAUSED');assert.equal(t.pending,null);
+ applyCommand(s,cmd('resume',id));assert.equal(t.status,'WAITING_FOR_APPROVAL');assert.equal(t.approvedRevision,null);
+});
