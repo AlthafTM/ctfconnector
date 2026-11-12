@@ -90,7 +90,7 @@ Browser target CTF dan tool/VM boleh dioperasikan dalam scope. Jangan menjalanka
 - Relay GitHub privat menyimpan payload AES-256-GCM; polling sekitar 10 detik. Heartbeat operator mempunyai jadwal terpisah, bukan WebSocket atau respons instan.
 - Maksimal 10 file, masing-masing 20 MiB. GitHub API/ukuran repo mempunyai batas. History dan ciphertext lama belum dibersihkan otomatis.
 - Pause/stop membatalkan operasi yang dikelola worker; prompt yang sudah diterima provider tidak dapat ditarik kembali. Pengiriman yang hasilnya tidak pasti tidak diulang otomatis.
-- Sisa quota Unknown jika tidak terukur. Tidak ada rotasi akun otomatis.
+- Sisa quota Unknown jika tidak terukur. Saat habis, operator boleh memilih akun Claude lain yang sudah disiapkan user. Konteks dan link lama disimpan; akun pengganti wajib diperiksa ulang Sonnet 5 / Thinking OFF / Free. Jika semua habis, task menunggu user.
 - Claude desktop Free, Sonnet 5 dan toggle Thinking OFF sudah diamati/dikonfigurasi di PC pada 12 November 2026. **Belum ada soal CTF nyata yang dikirim atau diselesaikan sebagai uji end-to-end.**
 - Adapter CDP generik tetap tidak aktif secara default. Patuhi izin akses provider; tidak ada bypass login, CAPTCHA atau rate limit. Lihat [catatan provider](docs/PROVIDERS.md).
 

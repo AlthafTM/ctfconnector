@@ -6,7 +6,7 @@ import { keyFromSecret } from '../web/crypto.mjs';
 import { materializeTask, challengeDirectory, inside } from '../agent/workspace.mjs';
 const [action, id, path] = process.argv.slice(2);
 if (!action || action === '--help') {
-  console.log('operator.mjs next | prepare <id> | draft <id> <challenge.txt> | note <id> <note.txt> | question <id> <question.txt> | settings <id> <settings.json> | take <id> | session <id> <url> | result <id> <result.json>'); process.exit(0);
+  console.log('operator.mjs next | prepare <id> | draft <id> <challenge.txt> | note <id> <note.txt> | question <id> <question.txt> | settings <id> <settings.json> | limit <id> <limit.txt> | account <id> <handoff.json> | take <id> | session <id> <url> | result <id> <result.json>'); process.exit(0);
 }
 const cfg = config(), relay = new GitHubRelay(cfg.repo, cfg.token, await keyFromSecret(cfg.secret)); await relay.verify();
 const snapshot = (await relay.read('state.json'))?.value; if (!snapshot) throw new Error('Worker belum punya state.');
@@ -18,8 +18,9 @@ const task = snapshot.tasks[id]; if (!task) throw new Error('Task tidak ditemuka
 const directory = await materializeTask(root, task, relay);
 if (action === 'prepare') { console.log(directory); process.exit(0); }
 let type, payload;
-if (['draft','note','question'].includes(action)) {
-  const text = await readFile(path, 'utf8'); type = { draft: 'transcribe', note: 'operator_note', question: 'question' }[action]; payload = { text };
+if (['draft','note','question','limit'].includes(action)) {
+  const text = await readFile(path, 'utf8'); type = { draft: 'transcribe', note: 'operator_note', question: 'question', limit: 'report_limit' }[action]; payload = { text };
+} else if (action === 'account') { type = 'account_handoff'; payload = JSON.parse(await readFile(path, 'utf8')); }
 } else if (action === 'settings') { type = 'operator_settings'; payload = JSON.parse(await readFile(path, 'utf8')); }
 else if (action === 'take') { type = 'take'; payload = { operationId: task.pending?.id }; }
 else if (action === 'session') { type = 'session'; payload = { url: path }; }

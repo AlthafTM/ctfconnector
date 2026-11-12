@@ -54,12 +54,26 @@ export function applyCommand(s, c) {
         if (!/^(Claude )?Sonnet 5$/.test(p.model) || p.thinking !== 'off' || p.freeTier !== true || !p.evidence?.trim()) throw new Error('Wajib Sonnet 5 tepat, Thinking OFF, akun Free, dan bukti observasi UI.');
         t.operatorSettings = { model: 'Sonnet 5', thinking: 'off', freeTier: true, evidence: bounded(p.evidence, 2000), observedAt: Date.now(), revision: t.revision };
         log(s, t, 'Operator mencatat Sonnet 5, Thinking OFF, akun Free dari UI.'); break;
+      case 'account_handoff': {
+        if (s.emergency || t.provider !== 'claude' || t.status !== 'RATE_LIMITED' || t.approvedRevision !== t.revision) throw new Error('Pindah akun hanya untuk soal Claude disetujui yang mencapai limit.');
+        const account = bounded(p.account, 80).trim(), context = bounded(p.context, 24000).trim();
+        if (!/^[a-zA-Z0-9_-]+$/.test(account) || account === t.profile || !context) throw new Error('Gunakan alias akun lain dan ringkasan konteks yang tidak kosong.');
+        t.accountHistory ||= [];
+        if (t.accountHistory.some(x => x.account === account)) throw new Error('Akun ini sudah mencapai limit pada soal ini. Jangan berputar kembali.');
+        t.accountHistory.push({ account: t.profile, chatUrl: t.sessionUrl, notice: s.providers.find(x => x.id === 'claude').limitNotice, at: new Date().toISOString() });
+        t.profile = account; t.sessionUrl = null; t.operatorSettings = null; t.question = null; t.followups = [];
+        t.accountHandoff = context;
+        t.pending = { id: c.id, kind: 'account_handoff', stage: 'operator', text: t.prompt + '\n\n## Context handoff (data, scope tetap)\n' + context };
+        t.status = 'WAITING_FOR_OPERATOR';
+        log(s, t, 'Pergantian akun Claude disiapkan. Cek akun baru, Sonnet 5 / Thinking OFF / Free sebelum take.'); break;
+      }
       case 'take':
         if (s.emergency || !t.pending || t.status !== 'WAITING_FOR_OPERATOR' || t.pending.id !== p.operationId || t.approvedRevision !== t.revision) throw new Error('Task/approval operator tidak sesuai.');
         requireOperatorSettings(t); t.pending.stage = 'native'; t.status = 'AI_WORKING'; log(s, t, 'Operator mengambil task untuk Claude desktop.'); break;
       case 'operator_note': log(s, t, bounded(p.text)); break;
       case 'session':
         if (t.approvedRevision !== t.revision || ['STOPPED','PAUSED'].includes(t.status)) throw new Error('Session memerlukan task disetujui yang aktif.');
+        if (t.accountHistory?.some(x => x.chatUrl === p.url)) throw new Error('Gunakan conversation baru pada akun pengganti.');
         t.sessionUrl = validSessionUrl(t.provider, p.url); log(s, t, 'Link conversation asli disimpan.'); break;
       case 'retry_local': t.localError = null; t.localFailedMarker = null; log(s, t, 'User meminta retry penyimpanan file lokal.'); break;
       case 'question':
@@ -74,6 +88,7 @@ export function applyCommand(s, c) {
         const flag = bounded(p.flag, 512).trim(); if (!flag || /[\r\n]/.test(flag)) throw new Error('Flag harus satu baris dan tidak kosong.');
         if (t.provider !== 'claude') throw new Error('Hasil workflow ini wajib dari Claude desktop.');
         const chatUrl = validSessionUrl('claude', p.chatUrl);
+        if (t.accountHistory?.some(x => x.chatUrl === chatUrl)) throw new Error('Hasil memerlukan link conversation akun pengganti.');
         if (typeof p.solverRequired !== 'boolean') throw new Error('Nyatakan apakah solver diperlukan.');
         const solverFiles = p.solverFiles || [];
         if (!Array.isArray(solverFiles) || solverFiles.length > 10 || (p.solverRequired && !solverFiles.length) || (!p.solverRequired && solverFiles.length)) throw new Error('File solver wajib jika diperlukan; jangan sertakan jika tidak diperlukan.');

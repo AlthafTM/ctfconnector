@@ -81,3 +81,22 @@ test('Claude cannot silently use the legacy browser automation adapter', async (
   const browser = new BrowserManager({});
   await assert.rejects(browser.submit({ provider: 'claude' }, {}, [], new AbortController().signal, () => {}), /aplikasi desktop/);
 });
+test('quota handoff preserves scope and old chat, requires fresh settings and new session', () => {
+ const {s,id,t}=ready();
+ applyCommand(s,cmd('session',id,{url:'https://claude.ai/chat/old-account'}));
+ assert.throws(()=>applyCommand(s,cmd('account_handoff',id,{account:'akun-2',context:'progress'})));
+ applyCommand(s,cmd('report_limit',id,{text:'Fixture: quota exhausted'}));
+ assert.throws(()=>applyCommand(s,cmd('account_handoff',id,{account:'default',context:'progress'})));
+ applyCommand(s,cmd('account_handoff',id,{account:'akun-2',context:'Fixture progress; no new target'}));
+ assert.equal(t.status,'WAITING_FOR_OPERATOR');assert.equal(t.approvedRevision,t.revision);assert.equal(t.sessionUrl,null);
+ assert.equal(t.accountHistory[0].chatUrl,'https://claude.ai/chat/old-account');assert.match(t.pending.text,/Fixture progress/);
+ assert.throws(()=>applyCommand(s,cmd('take',id,{operationId:t.pending.id})));
+ applyCommand(s,cmd('operator_settings',id,{model:'Sonnet 5',thinking:'off',freeTier:true,evidence:'Fixture new account UI'}));
+ applyCommand(s,cmd('take',id,{operationId:t.pending.id}));
+ assert.throws(()=>applyCommand(s,cmd('session',id,{url:'https://claude.ai/chat/old-account'})));
+ assert.throws(()=>applyCommand(s,cmd('result',id,{flag:'DEMO{x}',chatUrl:'https://claude.ai/chat/old-account',solverRequired:false})));
+ applyCommand(s,cmd('session',id,{url:'https://claude.ai/chat/new-account'}));
+ applyCommand(s,cmd('report_limit',id,{text:'Fixture second limit'}));
+ assert.throws(()=>applyCommand(s,cmd('account_handoff',id,{account:'default',context:'progress'})));
+ applyCommand(s,cmd('stop',id));assert.throws(()=>applyCommand(s,cmd('account_handoff',id,{account:'akun-3',context:'progress'})));
+});
