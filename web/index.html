@@ -48,6 +48,7 @@
     <label for="name">Nama soal (opsional)</label><input id="name" maxlength="180">
     <label for="description">Teks soal (opsional jika ada foto)</label><textarea id="description" rows="4" maxlength="100000"></textarea>
     <label for="files">Foto / file soal</label><input id="files" type="file" multiple><small>10 file, maksimal 20 MiB per file.</small>
+    <label class="remember-device" for="create-auto-accept"><input id="create-auto-accept" type="checkbox" checked>Auto accept teks ke Claude</label>
     <details><summary>Detail soal</summary>
       <label for="category">Kategori</label><select id="category"><option value="auto">Deteksi awal</option><option value="misc">Misc</option><option value="pwn">Pwn</option><option value="rev">Reverse engineering</option><option value="web">Web</option><option value="crypto">Crypto</option><option value="forensics">Forensics</option><option value="stego">Stego</option><option value="osint">OSINT</option></select>
       <label for="scope">Scope / target</label><textarea id="scope" rows="2" maxlength="4000"></textarea>

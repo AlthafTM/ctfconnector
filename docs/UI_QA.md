@@ -63,3 +63,5 @@ Scope: dashboard interface, local Worker/relay protocol fixture and visual desig
 ## Native operator revision
 
 Photo-only transcription gate, approval, model receipt, question/answer, no-solver result and optional solver upload passed in the local protocol fixture. Prompt-maker copy/paste passed. No overflow at 320, 390, 768 and 1440 px; browser console errors: none. All DEMO flags and fixture chat links are test data. No actual CTF was submitted to Claude.
+
+Auto-accept controls use the existing checkbox/editor styles and 44px label targets. Browser fixture passed creation with auto accept, off-to-review, exact initial edit, follow-up draft edit and on-to-approval. Disabled editing after send claim is covered by state tests; no provider was contacted.

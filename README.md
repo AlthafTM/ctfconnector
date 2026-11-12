@@ -8,7 +8,7 @@ Codex menjadi prompt maker/operator. Solver yang diminta: **Claude desktop, Sonn
 
 1. Pairing pertama dengan repo relay privat, fine-grained GitHub token (Contents read/write untuk relay saja), dan pairing key. Centang **Ingat koneksi di HP ini** pada HP pribadi untuk masuk otomatis saat membuka ulang.
 2. Tekan **Soal baru**. Kirim teks atau foto; nama soal boleh kosong.
-3. Foto disalin operator menjadi teks terlebih dahulu. Review dan setujui prompt lewat website.
+3. Foto disalin operator menjadi teks terlebih dahulu. **Auto accept teks ke Claude** aktif secara default pada soal baru. Matikan untuk review/edit prompt dan pesan lanjutan di website. Prompt dapat diedit sebelum operator mengambilnya; pesan lanjutan dapat diedit sebelum status SENDING.
 4. Operator menjalankan workflow Claude, browser CTF, tool/WSL atau VM yang tersedia dalam scope. Pertanyaan dikirim ke website.
 5. Hasil ringkas tampil di bagian atas soal. File solver hanya muncul jika diperlukan.
 

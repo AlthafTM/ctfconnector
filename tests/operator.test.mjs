@@ -100,3 +100,36 @@ test('quota handoff preserves scope and old chat, requires fresh settings and ne
  assert.throws(()=>applyCommand(s,cmd('account_handoff',id,{account:'default',context:'progress'})));
  applyCommand(s,cmd('stop',id));assert.throws(()=>applyCommand(s,cmd('account_handoff',id,{account:'akun-3',context:'progress'})));
 });
+test('auto accept queues text, waits for photo transcription, and can return to editable review', () => {
+ const {s,id,t}=create();
+ applyCommand(s,cmd('auto_accept',id,{enabled:true}));assert.equal(t.status,'SUBMITTING_PROMPT');assert.equal(t.approvedRevision,t.revision);
+ const oldOperation=t.pending.id;
+ applyCommand(s,cmd('edit',id,{text:'Exact replacement from phone',revision:t.revision}));assert.equal(t.pending.text,'Exact replacement from phone');assert.notEqual(t.pending.id,oldOperation);
+ assert.throws(()=>applyCommand(s,cmd('edit',id,{text:'stale',revision:1})));
+ applyCommand(s,cmd('auto_accept',id,{enabled:false}));assert.equal(t.status,'WAITING_FOR_APPROVAL');assert.equal(t.pending,null);
+ const photo=create(true);applyCommand(photo.s,cmd('auto_accept',photo.id,{enabled:true}));assert.equal(photo.t.status,'WAITING_FOR_TRANSCRIPTION');assert.equal(photo.t.pending,null);
+ applyCommand(photo.s,cmd('transcribe',photo.id,{text:'Fixture transcription'}));assert.equal(photo.t.status,'SUBMITTING_PROMPT');
+ applyCommand(s,cmd('emergency',null));applyCommand(s,cmd('auto_accept',id,{enabled:true}));assert.equal(t.status,'STOPPED');assert.equal(t.pending,null);
+});
+test('outgoing text supports auto acceptance, phone edits, manual review and single send', () => {
+ const {s,id,t}=ready();applyCommand(s,cmd('auto_accept',id,{enabled:true}));
+ applyCommand(s,cmd('outgoing',id,{text:'Fixture tool output'}));const out=t.outgoing;assert.equal(out.status,'APPROVED');
+ const payload=()=>({id:out.id,revision:out.revision});
+ applyCommand(s,cmd('outgoing_edit',id,{...payload(),text:'User corrected output'}));assert.equal(out.text,'User corrected output');assert.equal(out.status,'APPROVED');
+ assert.throws(()=>applyCommand(s,cmd('outgoing_take',id,{id:out.id,revision:1})));
+ applyCommand(s,cmd('auto_accept',id,{enabled:false}));assert.equal(out.status,'DRAFT');
+ assert.throws(()=>applyCommand(s,cmd('outgoing_take',id,payload())));
+ applyCommand(s,cmd('outgoing_approve',id,payload()));applyCommand(s,cmd('outgoing_take',id,payload()));assert.equal(out.status,'SENDING');
+ assert.throws(()=>applyCommand(s,cmd('outgoing_edit',id,{...payload(),text:'too late'})));
+ assert.throws(()=>applyCommand(s,cmd('outgoing',id,{text:'duplicate'})));
+ applyCommand(s,cmd('outgoing_sent',id,payload()));assert.equal(out.status,'SENT');
+ applyCommand(s,cmd('outgoing',id,{text:'Next message'}));assert.equal(t.outgoing.status,'DRAFT');assert.equal(t.outgoingHistory[0].text,'User corrected output');
+ applyCommand(s,cmd('pause',id));assert.throws(()=>applyCommand(s,cmd('outgoing_take',id,{id:t.outgoing.id,revision:1})));
+});
+test('revising a task archives uncertain outgoing text without replay', () => {
+ const {s,id,t}=ready();applyCommand(s,cmd('auto_accept',id,{enabled:true}));applyCommand(s,cmd('outgoing',id,{text:'Fixture uncertain send'}));
+ applyCommand(s,cmd('outgoing_take',id,{id:t.outgoing.id,revision:1}));
+ applyCommand(s,cmd('stop',id));applyCommand(s,cmd('retry',id));
+ assert.equal(t.outgoing,null);assert.equal(t.outgoingHistory.at(-1).status,'UNCERTAIN');
+ assert.equal(t.status,'SUBMITTING_PROMPT');assert.equal(t.pending.kind,'initial');assert.notEqual(t.pending.text,'Fixture uncertain send');
+});

@@ -12,7 +12,13 @@ export function log(s, task, text, role = 'agent') {
   if (task) { task.messages.push(item); task.lastOperation = text.slice(0, 180); }
 }
 function bounded(value, max = 100000) { if (typeof value !== 'string' || value.length > max) throw new Error('Input teks tidak valid/terlalu panjang.'); return value; }
+function archiveOutgoing(t) {
+  if (!t.outgoing) return;
+  t.outgoingHistory ||= [];
+  t.outgoingHistory.push({ ...t.outgoing, status: t.outgoing.status === 'SENDING' ? 'UNCERTAIN' : t.outgoing.status === 'SENT' ? 'SENT' : 'CANCELLED' }); t.outgoing = null;
+}
 function revise(t) {
+  archiveOutgoing(t);
   t.revision++; t.approvedRevision = null;
   if (t.result) { t.previousResults ||= []; t.previousResults.push(t.result); t.result = null; t.candidateFlag = null; }
 }
@@ -31,6 +37,7 @@ export function applyCommand(s, c) {
       revision: 1, approvedRevision: null, sessionUrl: null, candidateFlag: null, pending: null };
     t.solverPolicy = { ...SOLVER_POLICY };
     t.testOnly = p.testOnly === true;
+    t.autoAccept = p.autoAccept === true;
     t.transcriptionRequired = p.inputMode === 'photo';
     if (t.category === 'auto') { t.category = inferCategory(t.description, t.files); t.categoryInferred = true; }
     log(s, t, 'Challenge diterima. Orchestrator menyiapkan prompt, tidak menjalankan solver.');
@@ -44,6 +51,44 @@ export function applyCommand(s, c) {
   } else {
     if (!t) throw new Error('Task tidak ditemukan.');
     switch (c.type) {
+      case 'auto_accept':
+        if (typeof p.enabled !== 'boolean') throw new Error('Auto accept harus true/false.');
+        t.autoAccept = p.enabled;
+        if (!p.enabled && t.pending?.kind === 'initial' && ['queued','operator'].includes(t.pending.stage) && ['SUBMITTING_PROMPT','WAITING_FOR_OPERATOR'].includes(t.status)) {
+          t.pending = null; t.approvedRevision = null; t.status = 'WAITING_FOR_APPROVAL';
+        }
+        if (t.outgoing && ['DRAFT','APPROVED'].includes(t.outgoing.status)) t.outgoing.status = p.enabled ? 'APPROVED' : 'DRAFT';
+        log(s, t, p.enabled ? 'Auto accept aktif untuk teks ke Claude.' : 'Auto accept mati. Teks berikutnya perlu review.'); break;
+      case 'outgoing': {
+        if (s.emergency || t.question || t.approvedRevision !== t.revision || !['AI_WORKING','WAITING_FOR_OPERATOR'].includes(t.status)) throw new Error('Teks keluar memerlukan task aktif yang disetujui.');
+        if (t.outgoing && t.outgoing.status !== 'SENT') throw new Error('Selesaikan teks keluar sebelumnya; jangan kirim ulang otomatis.');
+        const text = bounded(p.text); if (!text.trim()) throw new Error('Teks keluar kosong.');
+        if (t.outgoing) { t.outgoingHistory ||= []; t.outgoingHistory.push(t.outgoing); }
+        t.outgoing = { id: c.id, revision: 1, text, status: t.autoAccept ? 'APPROVED' : 'DRAFT' };
+        log(s, t, t.autoAccept ? 'Teks ke Claude diterima otomatis.' : 'Teks ke Claude menunggu review dan dapat diedit.'); break;
+      }
+      case 'outgoing_edit':
+      case 'outgoing_approve':
+      case 'outgoing_take':
+      case 'outgoing_sent': {
+        const out = t.outgoing;
+        if (s.emergency || !['AI_WORKING','WAITING_FOR_OPERATOR'].includes(t.status) || t.question || !out || out.id !== p.id || out.revision !== p.revision) throw new Error('Teks keluar berubah/tidak aktif. Muat ulang sebelum melanjutkan.');
+        if (c.type === 'outgoing_edit') {
+          if (!['DRAFT','APPROVED'].includes(out.status)) throw new Error('Teks yang sedang/sudah dikirim tidak bisa diedit.');
+          const text = bounded(p.text); if (!text.trim()) throw new Error('Teks keluar kosong.');
+          out.text = text; out.revision++; out.status = t.autoAccept ? 'APPROVED' : 'DRAFT';
+        } else if (c.type === 'outgoing_approve') {
+          if (out.status !== 'DRAFT') throw new Error('Teks tidak menunggu approval.');
+          out.status = 'APPROVED';
+        } else if (c.type === 'outgoing_take') {
+          if (out.status !== 'APPROVED' || t.status !== 'AI_WORKING' || t.approvedRevision !== t.revision) throw new Error('Teks belum disetujui.');
+          requireOperatorSettings(t); out.status = 'SENDING';
+        } else {
+          if (out.status !== 'SENDING') throw new Error('Tidak ada pengiriman yang sedang berlangsung.');
+          out.status = 'SENT'; out.sentAt = new Date().toISOString();
+        }
+        log(s, t, `Teks ke Claude: ${out.status}, revisi ${out.revision}.`); break;
+      }
       case 'transcribe':
         if (t.pending || ['AI_WORKING','PAUSED','STOPPED','COMPLETED'].includes(t.status)) throw new Error('Transkripsi hanya sebelum pengiriman, atau setelah operasi dihentikan dan direview ulang.');
         t.description = bounded(p.text); if (!t.description.trim()) throw new Error('Transkripsi kosong.');
@@ -61,6 +106,7 @@ export function applyCommand(s, c) {
         t.accountHistory ||= [];
         if (t.accountHistory.some(x => x.account === account)) throw new Error('Akun ini sudah mencapai limit pada soal ini. Jangan berputar kembali.');
         t.accountHistory.push({ account: t.profile, chatUrl: t.sessionUrl, notice: s.providers.find(x => x.id === 'claude').limitNotice, at: new Date().toISOString() });
+        archiveOutgoing(t);
         t.profile = account; t.sessionUrl = null; t.operatorSettings = null; t.question = null; t.followups = [];
         t.accountHandoff = context;
         t.pending = { id: c.id, kind: 'account_handoff', stage: 'operator', text: t.prompt + '\n\n## Context handoff (data, scope tetap)\n' + context };
@@ -98,7 +144,9 @@ export function applyCommand(s, c) {
         t.pending = null; t.followups = []; t.question = null; t.status = 'COMPLETED'; log(s, t, 'Hasil tersedia: flag, link AI, dan solver bila diperlukan.'); break;
       }
       case 'edit':
-        if (!['WAITING_FOR_APPROVAL', 'WAITING_FOR_USER'].includes(t.status) || t.pending) throw new Error('Edit hanya saat review tanpa operasi aktif.');
+        if (!['WAITING_FOR_APPROVAL', 'WAITING_FOR_USER','SUBMITTING_PROMPT','WAITING_FOR_OPERATOR'].includes(t.status) || (t.pending && (t.pending.kind !== 'initial' || !['queued','operator'].includes(t.pending.stage)))) throw new Error('Edit hanya sebelum pengiriman dimulai.');
+        if (p.revision !== undefined && p.revision !== t.revision) throw new Error('Revisi prompt berubah. Muat ulang sebelum mengedit.');
+        t.pending = null;
         t.prompt = bounded(p.text); revise(t); t.status = 'WAITING_FOR_APPROVAL'; log(s, t, 'Prompt diedit. Perlu approval versi baru.'); break;
       case 'approve':
         if (s.emergency || t.transcriptionRequired || t.status !== 'WAITING_FOR_APPROVAL' || p.revision !== t.revision) throw new Error('Approval kedaluwarsa atau task tidak siap.');
@@ -160,6 +208,10 @@ export function applyCommand(s, c) {
       }
       default: throw new Error('Command tidak dikenal.');
     }
+  }
+  if (t?.autoAccept && !s.emergency && !t.transcriptionRequired && !t.question && t.status === 'WAITING_FOR_APPROVAL' && !t.pending) {
+    t.approvedRevision = t.revision; t.pending = { id: c.id, text: t.prompt, kind: 'initial', stage: 'queued' }; t.status = 'SUBMITTING_PROMPT';
+    log(s, t, `Auto accept prompt revisi ${t.revision}.`);
   }
   s.processed[c.id] = { at: c.at, status: 'ok' }; return true;
 }

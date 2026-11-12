@@ -13,3 +13,5 @@ Reading this as: a phone control panel for a CTF operator, with a compact native
 - No image assets, pictorial logo, animation, decorative icons, gradients or invented usage statistics.
 
 Remember-device uses one unchecked checkbox in the existing login form: explicit device-storage choice, 44px label target, no additional dialog or decoration.
+
+Auto accept is a single per-task checkbox; pending outgoing text uses the existing editor style and real disabled states once sending starts.

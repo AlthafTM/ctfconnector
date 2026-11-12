@@ -22,7 +22,7 @@ async function github(url, options = {}) {
   return files.has(name) ? Response.json(files.get(name)) : new Response('{}', { status: 404 });
 }
 const relay = new GitHubRelay('test/private', 'test-only', await keyFromSecret('A'.repeat(43)), github);
-const worker = new Worker(relay, { profiles: {} }, { close() {} }, await mkdtemp(join(tmpdir(), 'ctf-ui-'))); await worker.start();
+const worker = new Worker(relay, { profiles: { 'claude:default': { provider: 'claude', profile: 'default', mode: 'operator', model: 'Sonnet 5', thinking: 'off' } } }, { close() {} }, await mkdtemp(join(tmpdir(), 'ctf-ui-'))); await worker.start();
 let ticking = false; const interval = setInterval(async () => { if (ticking) return; ticking = true; try { await worker.tick(); } catch(e) { console.error(e.message); } finally { ticking = false; } }, 300);
 const root = resolve('web');
 const server = createServer(async (req, res) => {

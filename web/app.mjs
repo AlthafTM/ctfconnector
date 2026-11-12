@@ -54,14 +54,26 @@ function filesPanel(files, title) {
 }
 function renderTask(t) {
   const view = $('task-view');
-  const draft = Object.fromEntries(['prompt-draft', 'message-draft', 'response-draft', 'session-url', 'result-flag', 'result-chat', 'answer-text', 'transcript-text', 'limit-notice'].map(id => [id, $(id)?.value]));
+  const draft = Object.fromEntries(['prompt-draft', 'outgoing-draft', 'message-draft', 'response-draft', 'session-url', 'result-flag', 'result-chat', 'answer-text', 'transcript-text', 'limit-notice'].map(id => [id, $(id)?.value]));
   const checkboxes = Object.fromEntries(['needs-solver','followup'].map(id => [id, $(id)?.checked]));
   const selectedFiles = Object.fromEntries([...view.querySelectorAll('input[type=file]')].map(n => [n.id, [...n.files]]));
   const detailKey = d => d.querySelector('summary')?.textContent.replace(/\([^)]*\)|\/ revisi \d+/g, '').trim();
   const openSections = new Map([...view.querySelectorAll('details')].map(d => [detailKey(d), d.open]));
-  const oldId = view.dataset.taskId, oldRev = view.dataset.revision;
-  view.replaceChildren(); view.dataset.taskId = t.id; view.dataset.revision = t.revision;
+  const oldId = view.dataset.taskId, oldRev = view.dataset.revision, oldOutgoing = view.dataset.outgoing;
+  const outgoingVersion = `${t.outgoing?.id || ''}:${t.outgoing?.revision || ''}`;
+  if (oldOutgoing !== outgoingVersion) delete draft['outgoing-draft'];
+  view.replaceChildren(); view.dataset.taskId = t.id; view.dataset.revision = t.revision; view.dataset.outgoing = outgoingVersion;
   const heading = el('div', undefined, 'task-title'); append(heading, el('h2', t.name), el('span', statusNames[t.status] || t.status, 'status')); view.append(heading);
+  const autoLabel = el('label', undefined, 'remember-device'), auto = el('input'); auto.type = 'checkbox'; auto.id = 'auto-accept'; auto.checked = !!t.autoAccept; auto.disabled = state.emergency;
+  auto.addEventListener('change', () => { auto.disabled = true; send('auto_accept', t.id, { enabled: auto.checked }).catch(e => { auto.checked = !!t.autoAccept; auto.disabled = false; notify(e.message); }); });
+  append(autoLabel, auto, document.createTextNode('Auto accept teks ke Claude')); view.append(autoLabel);
+  if (t.outgoing) {
+    const out = t.outgoing, box = el('section', undefined, 'approval'), text = field(`Teks berikutnya ke Claude · ${out.status}`, 'outgoing-draft', 'textarea', out.text);
+    text.n.readOnly = !['DRAFT','APPROVED'].includes(out.status) || !['AI_WORKING','WAITING_FOR_OPERATOR'].includes(t.status) || state.emergency;
+    const payload = () => ({ id: out.id, revision: out.revision });
+    append(box, text.wrap, button('Simpan teks', () => send('outgoing_edit', t.id, { ...payload(), text: text.n.value }), '', text.n.readOnly),
+      button('Setujui teks', () => { if (text.n.value !== out.text) throw new Error('Simpan teks dulu sebelum approval.'); return send('outgoing_approve', t.id, payload()); }, 'primary', out.status !== 'DRAFT' || text.n.readOnly)); view.append(box);
+  }
   if (t.result) {
     const result = el('section', undefined, 'result'); result.append(el('h3', 'Hasil'), el('pre', t.result.flag));
     const actions = el('div', undefined, 'toolbar'), link = el('a', 'Buka chat AI'); link.href = t.result.chatUrl; link.target = '_blank'; link.rel = 'noreferrer';
@@ -88,11 +100,11 @@ function renderTask(t) {
   }
   if (t.prompt) {
     const approval = el('details', undefined, 'approval'); approval.open = t.status === 'WAITING_FOR_APPROVAL'; approval.append(el('summary', `Prompt / revisi ${t.revision}`));
-    const { wrap, n } = field('Isi prompt lengkap', 'prompt-draft', 'textarea', t.prompt); n.readOnly = !['WAITING_FOR_APPROVAL','WAITING_FOR_USER'].includes(t.status) || !!t.pending;
+    const { wrap, n } = field('Isi prompt lengkap', 'prompt-draft', 'textarea', t.prompt); n.readOnly = !['WAITING_FOR_APPROVAL','WAITING_FOR_USER','SUBMITTING_PROMPT','WAITING_FOR_OPERATOR'].includes(t.status) || (!!t.pending && (t.pending.kind !== 'initial' || !['queued','operator'].includes(t.pending.stage)));
     approval.append(wrap);
     const bar = el('div', undefined, 'toolbar');
     bar.append(button('Salin prompt', () => navigator.clipboard.writeText(n.value).then(() => notify('Prompt disalin.'))),
-      button('Simpan edit', () => send('edit', t.id, { text: n.value }), '', n.readOnly),
+      button('Simpan edit', () => send('edit', t.id, { text: n.value, revision: t.revision }), '', n.readOnly),
       button('Setujui & teruskan', async () => {
         if (n.value !== t.prompt) throw new Error('Simpan edit dulu dan tunggu revisi baru sebelum approval.');
         await send('approve', t.id, { revision: t.revision });
@@ -168,10 +180,10 @@ function renderTask(t) {
       if (uploads.length + t.files.length > 10 || uploads.some(f => f.size > 20 * 1024 * 1024)) throw new Error('Maksimal 10 attachment, masing-masing 20 MiB.');
       const files = []; for (const f of uploads) { notify(`Mengunggah ${f.name}...`); files.push(await relay.upload(f)); }
       await send('attachments', t.id, { files, text: message.n.value });
-    } else { if (!message.n.value.trim()) throw new Error('Isi pesan atau pilih file.'); await send('message', t.id, { text: message.n.value, followup: follow.checked }); }
+    } else { if (!message.n.value.trim()) throw new Error('Isi pesan atau pilih file.'); await send(follow.checked && t.provider === 'claude' ? 'outgoing' : 'message', t.id, { text: message.n.value, followup: follow.checked }); }
     message.n.value = ''; moreFiles.n.value = ''; follow.checked = false;
   }); }); view.append(form);
-  if (oldId === t.id) for (const [id, value] of Object.entries(draft)) if (value !== undefined && $(id) && (id !== 'prompt-draft' || oldRev === String(t.revision))) $(id).value = value;
+  if (oldId === t.id) for (const [id, value] of Object.entries(draft)) if (value !== undefined && $(id) && !$(id).readOnly && (id !== 'prompt-draft' || oldRev === String(t.revision))) $(id).value = value;
   if (oldId === t.id) {
     for (const d of view.querySelectorAll('details')) if (openSections.has(detailKey(d)) && !(d.classList.contains('approval') && oldRev !== String(t.revision))) d.open = openSections.get(detailKey(d));
     for (const [id, checked] of Object.entries(checkboxes)) if (checked !== undefined && $(id)) { $(id).checked = checked; $(id).dispatchEvent(new Event('change')); }
@@ -286,7 +298,7 @@ $('create-form').addEventListener('submit', async e => {
     if (!signedIn || currentRelay !== relay) throw new Error('Session logout saat upload. Masuk kembali.');
     const taskId = crypto.randomUUID();
     await send('create', taskId, { name: $('name').value.trim() || `Soal ${new Date().toLocaleString('id-ID')}`, category: $('category').value, description: $('description').value, scope: $('scope').value,
-      flagFormat: $('flag-format').value, provider: 'claude', profile: $('profile').value, files, inputMode: !$('description').value.trim() && uploads.some(f => f.type.startsWith('image/')) ? 'photo' : 'text' });
+      flagFormat: $('flag-format').value, provider: 'claude', profile: $('profile').value, autoAccept: $('create-auto-accept').checked, files, inputMode: !$('description').value.trim() && uploads.some(f => f.type.startsWith('image/')) ? 'photo' : 'text' });
     selected = taskId; $('create-dialog').close(); $('create-form').reset(); $('profile').value = 'default'; $('create-error').textContent = '';
   } catch (e) { $('create-error').textContent = e.message; } finally { b.disabled = false; }
 });
