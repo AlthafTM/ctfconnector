@@ -9,7 +9,7 @@ function task() {
 }
 test('initial prompt uses casual English, stays scoped, and waits for approval', () => {
   const { t } = task(); assert.equal(t.status, 'WAITING_FOR_APPROVAL'); assert.equal(t.pending, null);
-  assert.match(t.prompt, /pls solve this/); assert.match(t.prompt, /hanya file latihan/); assert.equal((t.prompt.match(/^## \d\./gm) || []).length, 6);
+  assert.match(t.prompt, /pls solve this/); assert.match(t.prompt, /hanya file latihan/); assert.equal(t.prompt.includes('## 1.'), false); assert.ok(t.prompt.length < 1800);
 });
 test('approval revision and duplicate commands are enforced', () => {
   const { s, id, t, create } = task(); assert.equal(applyCommand(s, create), false);

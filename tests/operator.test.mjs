@@ -24,7 +24,7 @@ test('photo cannot be approved until it has an explicit text transcription', () 
   const { s, id, t } = create(true); assert.equal(t.status, 'WAITING_FOR_TRANSCRIPTION'); assert.equal(t.prompt, '');
   assert.throws(() => applyCommand(s, cmd('approve', id, { revision: 1 })));
   applyCommand(s, cmd('transcribe', id, { text: 'RSA ciphertext dan modulus dari foto latihan.' }));
-  assert.equal(t.status, 'WAITING_FOR_APPROVAL'); assert.equal(t.category, 'crypto'); assert.match(t.prompt, /LINK_AI:/);
+  assert.equal(t.status, 'WAITING_FOR_APPROVAL'); assert.equal(t.category, 'crypto'); assert.match(t.prompt, /solver ONLY if needed/);
 });
 test('Sonnet 5.5, thinking low/on, unknown free tier, and stale settings cannot authorize take', () => {
   const { s, id, t } = create();
@@ -138,9 +138,9 @@ test('turning auto accept off while paused keeps the task paused and requires re
  applyCommand(s,cmd('auto_accept',id,{enabled:false}));assert.equal(t.status,'PAUSED');assert.equal(t.pending,null);
  applyCommand(s,cmd('resume',id));assert.equal(t.status,'WAITING_FOR_APPROVAL');assert.equal(t.approvedRevision,null);
 });
-test('English prompt style preserves original question data and allows a supported skip request', () => {
- const {t}=create();assert.match(t.prompt,/pls solve this/);assert.match(t.prompt,/MAKE SURE/);assert.match(t.prompt,/SKIP_REQUEST/);assert.ok(t.prompt.includes(t.description));
- const maker=promptMakerInstructions();assert.match(maker,/write all AI prompts and follow-up text in English/);assert.match(maker,/no long intro/);assert.match(maker,/dont skip just because it looks difficult/);assert.match(maker,/operator.mjs skip/);
+test('Claude gets a short English prompt; Codex alone owns skipping', () => {
+ const {t}=create();assert.match(t.prompt,/pls solve this/);assert.match(t.prompt,/MAKE SURE/);assert.equal(t.prompt.includes("SKIP_REQUEST"),false);assert.equal(t.prompt.includes("PROMPT MAKER"),false);assert.ok(t.prompt.includes(t.description));
+ const maker=promptMakerInstructions();assert.match(maker,/write all AI prompts and follow-up text in English/);assert.match(maker,/no long intro/);assert.match(maker,/Codex alone decides when to skip, not Claude/);assert.match(maker,/dont skip just because it looks difficult/);assert.match(maker,/operator.mjs skip/);
 });
 test('skip ends an active question, preserves evidence, and blocks sending until explicit retry', () => {
  const {s,id,t}=ready();applyCommand(s,cmd('auto_accept',id,{enabled:true}));applyCommand(s,cmd('outgoing',id,{text:'fixture pending text'}));

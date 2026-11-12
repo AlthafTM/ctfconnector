@@ -106,3 +106,5 @@ QA server lokal khusus fixture: `http://127.0.0.1:4174`, repo `test/private`, to
 Workflow GitHub Actions menguji lalu deploy folder `web/` saja. Tidak ada credential atau folder task lokal dalam artefak Pages.
 
 Prompt AI memakai bahasa Inggris dengan gaya singkat dan langsung sesuai preferensi user. Soal asli tetap utuh. Jika solver tidak punya jalur yang layak setelah percobaan berbasis bukti, operator dapat mengakhiri soal dengan Skip question dan alasan. File tetap disimpan, status menjadi SKIPPED, dan soal baru dapat langsung dikirim. Retry eksplisit diperlukan untuk membuka soal yang dilewati.
+
+Codex sendiri yang memutuskan skip berdasarkan progres dan bukti. Claude hanya menerima prompt Inggris singkat berisi soal, konteks yang diperlukan, dan permintaan flag/solver opsional; instruksi operator lengkap dan kebijakan skip tidak dikirim ke Claude.
