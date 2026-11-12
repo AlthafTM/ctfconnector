@@ -58,7 +58,7 @@ export class Worker {
         const next = structuredClone(this.state);
         try { applyCommand(next, c); this.state = next; }
         catch (e) { this.state.processed[c.id] = { status: 'rejected', error: e.message, at: new Date().toISOString() }; log(this.state, null, `Command ${c.type} ditolak: ${e.message}`); }
-        if (this.state.processed[c.id]?.status === 'ok' && ['pause', 'stop', 'emergency', 'report_limit'].includes(c.type)) for (const [id, active] of this.active) {
+        if (this.state.processed[c.id]?.status === 'ok' && ['pause', 'stop','skip', 'emergency', 'report_limit'].includes(c.type)) for (const [id, active] of this.active) {
           const task = this.state.tasks[c.taskId];
           if (c.type === 'emergency' || id === c.taskId || (c.type === 'report_limit' && active.profile === `${task.provider}:${task.profile}`)) active.controller.abort();
         }

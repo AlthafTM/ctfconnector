@@ -7,9 +7,9 @@ function task() {
   const create = command('create', id, { name: 'Harmless sample', description: 'Cari teks flag dari file latihan.', category: 'misc', provider: 'chatgpt', files: [], scope: 'hanya file latihan' });
   applyCommand(s, create); return { s, id, t: s.tasks[id], create };
 }
-test('initial prompt is Indonesian, scoped, and never queued before approval', () => {
+test('initial prompt uses casual English, stays scoped, and waits for approval', () => {
   const { t } = task(); assert.equal(t.status, 'WAITING_FOR_APPROVAL'); assert.equal(t.pending, null);
-  assert.match(t.prompt, /Kamu solver CTF/); assert.match(t.prompt, /hanya file latihan/); assert.equal((t.prompt.match(/^## \d\./gm) || []).length, 6);
+  assert.match(t.prompt, /pls solve this/); assert.match(t.prompt, /hanya file latihan/); assert.equal((t.prompt.match(/^## \d\./gm) || []).length, 6);
 });
 test('approval revision and duplicate commands are enforced', () => {
   const { s, id, t, create } = task(); assert.equal(applyCommand(s, create), false);
@@ -69,5 +69,5 @@ test('manual quota reports stop the profile and reset requires explicit user act
 test('auto triage only classifies category and uses a category-specific prompt plan', () => {
   const s = initialState(), id = crypto.randomUUID();
   applyCommand(s, command('create', id, { name: 'RSA sample', category: 'auto', description: 'RSA ciphertext with modulus n', provider: 'chatgpt', files: [] }));
-  assert.equal(s.tasks[id].category, 'crypto'); assert.match(s.tasks[id].prompt, /Inventarisasi algoritma, parameter, nonce/); assert.equal(s.tasks[id].pending, null);
+  assert.equal(s.tasks[id].category, 'crypto'); assert.match(s.tasks[id].prompt, /list the algorithm, parameters, nonces/); assert.equal(s.tasks[id].pending, null);
 });

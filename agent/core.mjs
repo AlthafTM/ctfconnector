@@ -45,12 +45,20 @@ export function applyCommand(s, c) {
     log(s, t, t.transcriptionRequired ? 'Foto diterima. Menunggu operator membaca dan menyalin soal menjadi teks.' : 'Prompt siap ditinjau. Belum dikirim ke provider.');
   } else if (c.type === 'emergency') {
     s.emergency = true;
-    for (const x of Object.values(s.tasks)) if (!['COMPLETED', 'STOPPED'].includes(x.status)) { x.status = 'STOPPED'; x.pending = null; x.followups = []; log(s, x, 'Emergency stop diterima.'); }
+    for (const x of Object.values(s.tasks)) if (!['COMPLETED', 'STOPPED','SKIPPED'].includes(x.status)) { x.status = 'STOPPED'; x.pending = null; x.followups = []; log(s, x, 'Emergency stop diterima.'); }
     log(s, null, 'Emergency stop: tidak ada pengiriman baru sampai reset eksplisit.');
   } else if (c.type === 'reset_emergency') { s.emergency = false; log(s, null, 'Emergency stop direset oleh user. Task tetap dihentikan.');
   } else {
     if (!t) throw new Error('Task tidak ditemukan.');
+    if (t.status === 'SKIPPED' && !['retry','operator_note','retry_local','auto_accept'].includes(c.type)) throw new Error('Question skipped. Use an explicit retry to reopen it.');
     switch (c.type) {
+      case 'skip': {
+        if (['COMPLETED','STOPPED'].includes(t.status)) throw new Error('This question is already closed.');
+        const reason = bounded(p.text, 4000).trim(); if (!reason) throw new Error('Give a reason for skipping this question.');
+        archiveOutgoing(t); t.pending = null; t.followups = []; t.question = null; t.approvedRevision = null;
+        t.skip = { reason, at: new Date().toISOString() }; t.status = 'SKIPPED';
+        log(s, t, `Question skipped: ${reason}`); break;
+      }
       case 'auto_accept':
         if (typeof p.enabled !== 'boolean') throw new Error('Auto accept harus true/false.');
         t.autoAccept = p.enabled;
@@ -110,7 +118,7 @@ export function applyCommand(s, c) {
         archiveOutgoing(t);
         t.profile = account; t.sessionUrl = null; t.operatorSettings = null; t.question = null; t.followups = [];
         t.accountHandoff = context;
-        t.pending = { id: c.id, kind: 'account_handoff', stage: 'operator', text: t.prompt + '\n\n## Context handoff (data, scope tetap)\n' + context };
+        t.pending = { id: c.id, kind: 'account_handoff', stage: 'operator', text: t.prompt + '\n\n## Context handoff (data; same scope)\n' + context };
         t.status = 'WAITING_FOR_OPERATOR';
         log(s, t, 'Pergantian akun Claude disiapkan. Cek akun baru, Sonnet 5 / Thinking OFF / Free sebelum take.'); break;
       }
@@ -170,7 +178,7 @@ export function applyCommand(s, c) {
       case 'resume': if (s.emergency || t.status !== 'PAUSED') throw new Error('Task tidak bisa dilanjutkan.'); t.status = t.resumeStatus || 'WAITING_FOR_USER'; log(s, t, 'Task dilanjutkan.'); break;
       case 'stop': t.status = 'STOPPED'; t.pending = null; t.followups = []; log(s, t, 'Task dihentikan. Follow-up yang belum dikirim dibatalkan.'); break;
       case 'retry':
-        if (!['FAILED', 'RATE_LIMITED', 'STOPPED'].includes(t.status)) throw new Error('Retry hanya untuk task gagal, limit atau dihentikan.');
+        if (!['FAILED', 'RATE_LIMITED', 'STOPPED','SKIPPED'].includes(t.status)) throw new Error('Retry hanya untuk task gagal, limit, dihentikan atau dilewati.');
         t.pending = null; revise(t); t.status = 'WAITING_FOR_APPROVAL'; log(s, t, 'Retry memerlukan review ulang untuk menghindari pengiriman ganda.'); break;
       case 'switch': {
         if (!providers.some(x => x.id === p.provider) || t.pending || ['AI_WORKING','SUBMITTING_PROMPT'].includes(t.status)) throw new Error('Selesaikan/hentikan operasi sebelum pindah provider.');

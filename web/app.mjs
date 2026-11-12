@@ -8,7 +8,7 @@ const urls = new Set(), pendingCommands = new Set();
 function el(tag, text, className) { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (className) n.className = className; return n; }
 function append(parent, ...children) { parent.append(...children); return parent; }
 function disclosure(title, ...children) { const d = el('details'); d.append(el('summary', title), ...children); return d; }
-const statusNames = { WAITING_FOR_TRANSCRIPTION: 'Baca foto', WAITING_FOR_APPROVAL: 'Review prompt', WAITING_FOR_OPERATOR: 'Menunggu Codex', AI_WORKING: 'Dikerjakan', WAITING_FOR_USER: 'Butuh jawaban', RATE_LIMITED: 'Limit provider', PAUSED: 'Dijeda', STOPPED: 'Dihentikan', COMPLETED: 'Selesai', FAILED: 'Gagal', SUBMITTING_PROMPT: 'Menyiapkan' };
+const statusNames = { WAITING_FOR_TRANSCRIPTION: 'Baca foto', WAITING_FOR_APPROVAL: 'Review prompt', WAITING_FOR_OPERATOR: 'Menunggu Codex', AI_WORKING: 'Dikerjakan', WAITING_FOR_USER: 'Butuh jawaban', RATE_LIMITED: 'Limit provider', PAUSED: 'Dijeda', STOPPED: 'Dihentikan', SKIPPED: 'Skipped', COMPLETED: 'Selesai', FAILED: 'Gagal', SUBMITTING_PROMPT: 'Menyiapkan' };
 function time(at) { return at ? new Date(at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'medium' }) : 'Belum ada'; }
 function notify(text) { $('notice').textContent = text; }
 async function action(button, fn) {
@@ -54,7 +54,7 @@ function filesPanel(files, title) {
 }
 function renderTask(t) {
   const view = $('task-view');
-  const draft = Object.fromEntries(['prompt-draft', 'outgoing-draft', 'message-draft', 'response-draft', 'session-url', 'result-flag', 'result-chat', 'answer-text', 'transcript-text', 'limit-notice'].map(id => [id, $(id)?.value]));
+  const draft = Object.fromEntries(['prompt-draft', 'outgoing-draft', 'skip-reason', 'message-draft', 'response-draft', 'session-url', 'result-flag', 'result-chat', 'answer-text', 'transcript-text', 'limit-notice'].map(id => [id, $(id)?.value]));
   const checkboxes = Object.fromEntries(['needs-solver','followup'].map(id => [id, $(id)?.checked]));
   const selectedFiles = Object.fromEntries([...view.querySelectorAll('input[type=file]')].map(n => [n.id, [...n.files]]));
   const detailKey = d => d.querySelector('summary')?.textContent.replace(/\([^)]*\)|\/ revisi \d+/g, '').trim();
@@ -64,6 +64,7 @@ function renderTask(t) {
   if (oldOutgoing !== outgoingVersion) delete draft['outgoing-draft'];
   view.replaceChildren(); view.dataset.taskId = t.id; view.dataset.revision = t.revision; view.dataset.outgoing = outgoingVersion;
   const heading = el('div', undefined, 'task-title'); append(heading, el('h2', t.name), el('span', statusNames[t.status] || t.status, 'status')); view.append(heading);
+  if (t.status === 'SKIPPED') view.append(el('p', `Skipped: ${t.skip?.reason || 'Search ended.'}`, 'notice'), button('Send a new question', () => $('create-dialog').showModal(), 'primary'));
   const autoLabel = el('label', undefined, 'remember-device'), auto = el('input'); auto.type = 'checkbox'; auto.id = 'auto-accept'; auto.checked = !!t.autoAccept; auto.disabled = state.emergency;
   auto.addEventListener('change', () => { auto.disabled = true; send('auto_accept', t.id, { enabled: auto.checked }).catch(e => { auto.checked = !!t.autoAccept; auto.disabled = false; notify(e.message); }); });
   append(autoLabel, auto, document.createTextNode('Auto accept teks ke Claude')); view.append(autoLabel);
@@ -89,12 +90,13 @@ function renderTask(t) {
   }
   const description = el('details'); append(description, el('summary', 'Deskripsi challenge'), richText(t.description)); view.append(description);
   const controls = el('div', undefined, 'toolbar');
-  controls.append(button('Jeda', () => send('pause', t.id), '', ['PAUSED', 'STOPPED', 'COMPLETED'].includes(t.status)),
+  controls.append(button('Jeda', () => send('pause', t.id), '', ['PAUSED', 'STOPPED', 'COMPLETED','SKIPPED'].includes(t.status)),
     button('Lanjutkan', () => send('resume', t.id), '', t.status !== 'PAUSED' || state.emergency),
-    button('Hentikan', async () => { if (await confirmAction('Hentikan task?', 'Worker akan membatalkan operasi task ini. Respons yang sudah berjalan di provider mungkin tetap berjalan.')) await send('stop', t.id); }, 'danger', t.status === 'STOPPED'),
-    button('Retry dengan review', () => send('retry', t.id), '', !['FAILED','RATE_LIMITED','STOPPED'].includes(t.status)),
+    button('Hentikan', async () => { if (await confirmAction('Hentikan task?', 'Worker akan membatalkan operasi task ini. Respons yang sudah berjalan di provider mungkin tetap berjalan.')) await send('stop', t.id); }, 'danger', ['STOPPED','SKIPPED'].includes(t.status)),
+    button('Retry dengan review', () => send('retry', t.id), '', !['FAILED','RATE_LIMITED','STOPPED','SKIPPED'].includes(t.status)),
     button('Tandai selesai', () => send('complete', t.id), '', !!t.pending || t.status !== 'WAITING_FOR_USER' || (t.provider === 'claude' && !t.result)));
-  view.append(disclosure('Kontrol task', controls));
+  const skipReason = field('Reason to skip (optional)', 'skip-reason', 'input'); skipReason.n.maxLength = 4000;
+  view.append(disclosure('Kontrol task', controls, skipReason.wrap, button('Skip question', () => send('skip', t.id, { text: skipReason.n.value.trim() || 'User requested to skip this question.' }), '', ['STOPPED','COMPLETED','SKIPPED'].includes(t.status))));
   if (t.candidateFlag && !t.result) {
     const flag = el('section', undefined, 'flag'); append(flag, el('h3', 'Kandidat flag'), el('pre', t.candidateFlag), el('p', 'Belum berarti diterima scoreboard.'), button('Salin kandidat flag', () => navigator.clipboard.writeText(t.candidateFlag).then(() => notify('Kandidat flag disalin.')))); view.append(flag);
   }
@@ -160,7 +162,7 @@ function renderTask(t) {
   const draftForm = el('form'), transcript = field('Teks soal dari foto', 'transcript-text'); transcript.n.required = true;
   const draftButton = el('button', 'Simpan teks & buat prompt'); draftButton.type = 'submit'; draftForm.append(transcript.wrap, draftButton);
   draftForm.addEventListener('submit', e => { e.preventDefault(); action(draftButton, () => send('transcribe', t.id, { text: transcript.n.value })); });
-  if (!t.pending && !['COMPLETED','STOPPED','PAUSED','AI_WORKING'].includes(t.status)) conversation.append(disclosure('Transkripsi soal', draftForm));
+  if (!t.pending && !['COMPLETED','STOPPED','SKIPPED','PAUSED','AI_WORKING'].includes(t.status)) conversation.append(disclosure('Transkripsi soal', draftForm));
   const take = button('Ambil sebagai operator', () => send('take', t.id, { operationId: t.pending?.id }), '', t.status !== 'WAITING_FOR_OPERATOR'); conversation.append(take);
   const messages = el('details', undefined, 'messages'); messages.append(el('summary', `Aktivitas (${t.messages.length})`));
   for (const m of t.messages) {
@@ -172,7 +174,7 @@ function renderTask(t) {
   const moreFiles = field('File tambahan (membuat prompt untuk review ulang)', 'message-files', 'input'); moreFiles.n.type = 'file'; moreFiles.n.multiple = true;
   const label = el('label', undefined, 'inline'), follow = el('input'); follow.type = 'checkbox'; follow.id = 'followup'; label.htmlFor = follow.id;
   append(label, follow, document.createTextNode('Teruskan ke provider dalam scope yang sudah disetujui.'));
-  const submit = el('button', 'Kirim pesan', 'primary'); submit.type = 'submit'; append(form, message.wrap, disclosure('Lampiran & follow-up', moreFiles.wrap, label), submit);
+  const submit = el('button', 'Kirim pesan', 'primary'); submit.type = 'submit'; submit.disabled = t.status === 'SKIPPED'; append(form, message.wrap, disclosure('Lampiran & follow-up', moreFiles.wrap, label), submit);
   form.addEventListener('submit', e => { e.preventDefault(); action(submit, async () => {
     const uploads = Array.from(moreFiles.n.files);
     if (uploads.length) {

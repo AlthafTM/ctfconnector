@@ -104,3 +104,5 @@ node scripts/verify-deployment.mjs
 QA server lokal khusus fixture: `http://127.0.0.1:4174`, repo `test/private`, token `test-only`, key `AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`. Fixture tidak masuk Pages. Hasil DEMO dan URL fixture bukan hasil AI. [Verifikasi](docs/VERIFICATION.md) · [Gate UI](docs/UI_QA.md).
 
 Workflow GitHub Actions menguji lalu deploy folder `web/` saja. Tidak ada credential atau folder task lokal dalam artefak Pages.
+
+Prompt AI memakai bahasa Inggris dengan gaya singkat dan langsung sesuai preferensi user. Soal asli tetap utuh. Jika solver tidak punya jalur yang layak setelah percobaan berbasis bukti, operator dapat mengakhiri soal dengan Skip question dan alasan. File tetap disimpan, status menjadi SKIPPED, dan soal baru dapat langsung dikirim. Retry eksplisit diperlukan untuk membuka soal yang dilewati.

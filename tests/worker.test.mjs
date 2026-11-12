@@ -73,3 +73,10 @@ test('desktop operator waits for take and never invokes the browser adapter', as
     assert.equal(w.state.tasks[id].status, 'COMPLETED'); assert.equal(w.state.tasks[id].result.flag, 'DEMO{fixture_only}');
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+test('skip aborts a running operation and never turns it into a solved task', async () => {
+ const dir=await mkdtemp(join(tmpdir(),'ctf-skip-worker-')),r=new MemoryRelay(await keyFromSecret(Buffer.alloc(32,11).toString('base64url')));
+ const cfg={profiles:{'chatgpt:default':{mode:'automated',freeTierVerified:true,verificationEvidence:'fixture',automationPermissionEvidence:'fixture'}}};let activeSignal;
+ const browser={close(){},async submit(t,p,f,signal,checkpoint){activeSignal=signal;await checkpoint('sent');await new Promise((resolve,reject)=>{if(signal.aborted)reject(new Error('cancelled'));else signal.addEventListener('abort',()=>reject(new Error('cancelled')),{once:true});});}};
+ const w=new Worker(r,cfg,browser,dir);
+ try {await w.start();const id=crypto.randomUUID();await w.process(command('create',id,{name:'Skip fixture',category:'misc',description:'No remote target',provider:'chatgpt',files:[]}));await w.process(command('approve',id,{revision:1}));w.dispatch();await new Promise(resolve=>setTimeout(resolve,10));await w.process(command('skip',id,{text:'Fixture exhausted its useful path'}));await Promise.all([...w.active.values()].map(x=>x.promise));assert.equal(activeSignal.aborted,true);assert.equal(w.state.tasks[id].status,'SKIPPED');assert.equal(w.state.tasks[id].pending,null);assert.equal(w.state.tasks[id].result,undefined);}finally{await w.stop();await rm(dir,{recursive:true,force:true});}
+});

@@ -28,7 +28,8 @@ export async function materializeTask(root, task, relay) {
     files.push({ ...file, localPath: path });
   }
   await writeFile(resolve(directory, 'challenge.json'), JSON.stringify({ id: task.id, name: task.name, description: task.description, scope: task.scope, files, website: WEBSITE, policy: SOLVER_POLICY,
-    status: task.status, revision: task.revision, approvedRevision: task.approvedRevision, autoAccept: !!task.autoAccept, outgoing: task.outgoing || null, outgoingHistory: task.outgoingHistory || [], profile: task.profile, accountHistory: task.accountHistory || [], accountHandoff: task.accountHandoff || null, sessionUrl: task.sessionUrl, operation: task.pending, question: task.question || null, messages: task.messages, result: task.result || null }, null, 2), { mode: 0o600 });
+    status: task.status, skip: task.skip || null, revision: task.revision, approvedRevision: task.approvedRevision, autoAccept: !!task.autoAccept, outgoing: task.outgoing || null, outgoingHistory: task.outgoingHistory || [], profile: task.profile, accountHistory: task.accountHistory || [], accountHandoff: task.accountHandoff || null, sessionUrl: task.sessionUrl, operation: task.pending, question: task.question || null, messages: task.messages, result: task.result || null }, null, 2), { mode: 0o600 });
+  if (task.skip) await writeFile(resolve(directory, 'skip.txt'), task.skip.reason + '\n', { mode: 0o600 });
   await writeFile(resolve(directory, 'prompt-maker.md'), promptMakerInstructions(task.id, directory), { mode: 0o600 });
   await writeFile(resolve(directory, 'prompt-draft.txt'), task.prompt || '', { mode: 0o600 });
   if (task.approvedRevision === task.revision) await writeFile(resolve(directory, `approved-prompt-r${task.revision}.txt`), task.prompt, { mode: 0o600 });

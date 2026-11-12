@@ -68,7 +68,7 @@ test('local packet preserves original inputs, approved revisions, and optional s
 });
 test('prompt maker knows website, text-first input, exact model and conditional solver deliverables', () => {
   const prompt = promptMakerInstructions();
-  for (const expected of ['https://althaftm.github.io/ctfconnector/', 'Sonnet 5', 'Thinking OFF', 'challenge.txt', 'screenshots/', 'solverRequired', 'di-ack']) assert.ok(prompt.includes(expected));
+  for (const expected of ['https://althaftm.github.io/ctfconnector/', 'Sonnet 5', 'Thinking OFF', 'challenge.txt', 'screenshots/', 'solverRequired', 'worker ACK']) assert.ok(prompt.includes(expected));
 });
 test('needed solver is published and a later revision archives the old result', () => {
   const { s, id, t } = ready(), file = { id: crypto.randomUUID(), name: 'solver-fixture.py', size: 1, chunks: [] };
@@ -137,4 +137,22 @@ test('turning auto accept off while paused keeps the task paused and requires re
  const {s,id,t}=create();applyCommand(s,cmd('auto_accept',id,{enabled:true}));applyCommand(s,cmd('pause',id));
  applyCommand(s,cmd('auto_accept',id,{enabled:false}));assert.equal(t.status,'PAUSED');assert.equal(t.pending,null);
  applyCommand(s,cmd('resume',id));assert.equal(t.status,'WAITING_FOR_APPROVAL');assert.equal(t.approvedRevision,null);
+});
+test('English prompt style preserves original question data and allows a supported skip request', () => {
+ const {t}=create();assert.match(t.prompt,/pls solve this/);assert.match(t.prompt,/MAKE SURE/);assert.match(t.prompt,/SKIP_REQUEST/);assert.ok(t.prompt.includes(t.description));
+ const maker=promptMakerInstructions();assert.match(maker,/write all AI prompts and follow-up text in English/);assert.match(maker,/no long intro/);assert.match(maker,/dont skip just because it looks difficult/);assert.match(maker,/operator.mjs skip/);
+});
+test('skip ends an active question, preserves evidence, and blocks sending until explicit retry', () => {
+ const {s,id,t}=ready();applyCommand(s,cmd('auto_accept',id,{enabled:true}));applyCommand(s,cmd('outgoing',id,{text:'fixture pending text'}));
+ assert.throws(()=>applyCommand(s,cmd('skip',id,{text:'  '})));
+ const reason='2 attempts found no new evidence; required artifact unavailable.';
+ applyCommand(s,cmd('skip',id,{text:reason}));assert.equal(t.status,'SKIPPED');assert.equal(t.skip.reason,reason);assert.equal(t.pending,null);assert.equal(t.approvedRevision,null);assert.equal(t.outgoing,null);assert.equal(t.result,undefined);
+ assert.equal(t.outgoingHistory.at(-1).status,'CANCELLED');
+ for(const type of ['take','approve','outgoing','result','response','question','session','attachments','pause','switch','transcribe']) assert.throws(()=>applyCommand(s,cmd(type,id,{text:'no replay'})),/skipped/);
+ const second=crypto.randomUUID();applyCommand(s,cmd('create',second,{name:'Next',description:'New fixture',category:'misc',provider:'claude',files:[]}));assert.equal(s.tasks[second].status,'WAITING_FOR_APPROVAL');assert.equal(t.status,'SKIPPED');
+ applyCommand(s,cmd('retry',id));assert.equal(t.status,'SUBMITTING_PROMPT');assert.equal(t.revision,2);
+});
+test('skip packet keeps the reason locally without inventing solved files', async () => {
+ const {s,id,t}=create();applyCommand(s,cmd('skip',id,{text:'Fixture: missing challenge file'}));const root=await mkdtemp(join(tmpdir(),'ctf-skip-'));
+ try {const dir=await materializeTask(root,t,{download(){throw new Error('No attachments expected');}});assert.equal((await readFile(join(dir,'skip.txt'),'utf8')).trim(),t.skip.reason);const packet=JSON.parse(await readFile(join(dir,'challenge.json'),'utf8'));assert.equal(packet.status,'SKIPPED');assert.equal(packet.result,null);await assert.rejects(access(join(dir,'flag.txt')));await assert.rejects(access(join(dir,'solver')));}finally{await rm(root,{recursive:true,force:true});}
 });
