@@ -23,6 +23,8 @@
         <label for="repo">Repo relay privat</label><input id="repo" autocomplete="off" required>
         <label for="token">GitHub token</label><input id="token" type="password" autocomplete="off" required spellcheck="false">
         <label for="key">Pairing key</label><input id="key" type="password" autocomplete="off" required spellcheck="false" minlength="43" maxlength="43">
+        <label class="remember-device" for="remember"><input id="remember" type="checkbox">Ingat koneksi di HP ini</label>
+        <small>HP pribadi saja. Keluar menghapus koneksi tersimpan.</small>
         <button class="primary" type="submit">Hubungkan</button><p id="login-error" role="alert"></p>
         <details><summary>Setup</summary><p><code>node scripts/pair.mjs</code> di PC. Token GitHub: Contents read/write untuk repo relay saja.</p><a href="https://github.com/AlthafTM/ctfconnector#instalasi-dan-start-di-windows" target="_blank" rel="noreferrer">Panduan</a></details>
       </form>

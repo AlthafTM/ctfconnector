@@ -1,6 +1,7 @@
 import { GitHubRelay } from './relay.mjs';
 import { keyFromSecret } from './crypto.mjs';
 import { promptMakerInstructions } from './operator-prompt.mjs';
+import { savedSession, rememberSession, forgetSession } from './session.mjs';
 const $ = id => document.getElementById(id);
 let relay, state, selected, timer, polling = false, signedIn = false, renderSignature = '', generation = 0, pollFailures = 0;
 const urls = new Set(), pendingCommands = new Set();
@@ -224,24 +225,43 @@ async function poll() {
   } }
   finally { polling = false; if (signedIn && gen === generation) { clearTimeout(timer); timer = setTimeout(poll, nextDelay); } }
 }
+async function connect(candidate) {
+  await candidate.verify(); await candidate.read('lease.json'); const snapshot = await candidate.read('state.json');
+  relay = candidate; generation++; signedIn = true; localStorage.setItem('ctf-relay', relay.repo); $('token').value = ''; $('key').value = '';
+  $('login').hidden = true; $('desk').hidden = false; $('logout').hidden = false; $('login-error').textContent = '';
+  if (snapshot) { state = snapshot.value; render(); } clearTimeout(timer); timer = setTimeout(poll, 0);
+}
 $('login-form').addEventListener('submit', async e => {
   e.preventDefault(); const b = e.submitter; b.disabled = true; $('login-error').textContent = 'Memeriksa relay privat dan pairing key...';
   try {
     const candidate = new GitHubRelay($('repo').value.trim(), $('token').value.trim(), await keyFromSecret($('key').value.trim()));
-    await candidate.verify(); await candidate.read('lease.json'); const snapshot = await candidate.read('state.json');
-    relay = candidate; generation++; signedIn = true; localStorage.setItem('ctf-relay', relay.repo); $('token').value = ''; $('key').value = '';
-    $('login').hidden = true; $('desk').hidden = false; $('logout').hidden = false; $('login-error').textContent = '';
-    if (snapshot) { state = snapshot.value; render(); } await poll();
+    await connect(candidate);
+    try { if ($('remember').checked) await rememberSession(candidate); else await forgetSession(); }
+    catch { notify('Terhubung, tetapi browser tidak bisa menyimpan koneksi. Setelah tab ditutup perlu pairing ulang.'); }
   } catch (e) { $('login-error').textContent = e.name === 'OperationError' ? 'Pairing key salah atau data tidak cocok.' : e.message; }
   finally { b.disabled = false; }
 });
+async function restoreConnection() {
+  const controls = [...$('login-form').querySelectorAll('input,button')];
+  controls.forEach(n => { n.disabled = true; });
+  try {
+    const saved = await savedSession(); if (!saved) return;
+    $('repo').value = saved.repo; $('remember').checked = true;
+    $('login-error').textContent = 'Menghubungkan kembali...';
+    await connect(new GitHubRelay(saved.repo, saved.token, saved.key));
+  } catch { $('login-error').textContent = 'Koneksi tersimpan belum bisa digunakan. Periksa internet atau masukkan token dan pairing key kembali.'; }
+  finally { controls.forEach(n => { n.disabled = false; }); }
+}
+restoreConnection();
 $('repo').value = localStorage.getItem('ctf-relay') || 'AlthafTM/ctfconnector-relay';
-$('logout').addEventListener('click', () => {
+$('logout').addEventListener('click', async () => {
   signedIn = false; generation++; clearTimeout(timer); relay = undefined; state = undefined; selected = undefined; renderSignature = ''; pendingCommands.clear();
   for (const url of urls) URL.revokeObjectURL(url); urls.clear();
   $('task-view').replaceChildren(); $('audit').replaceChildren(); $('providers').replaceChildren(); $('task-list').replaceChildren(); $('monitor-data').replaceChildren();
   for (const d of document.querySelectorAll('dialog[open]')) d.close(); $('preview-image').removeAttribute('src'); $('create-form').reset();
   $('desk').hidden = true; $('login').hidden = false; $('logout').hidden = true; $('connection').textContent = 'Belum terhubung';
+  $('remember').checked = false;
+  try { await forgetSession(); } catch { $('login-error').textContent = 'Koneksi tersimpan gagal dihapus. Hapus data situs ini lewat pengaturan browser.'; }
 });
 $('refresh').addEventListener('click', () => { clearTimeout(timer); poll(); });
 $('new-task').addEventListener('click', () => $('create-dialog').showModal());

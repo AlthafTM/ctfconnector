@@ -11,3 +11,5 @@ Reading this as: a phone control panel for a CTF operator, with a compact native
 - Provider details, controls and logs are folded because they are secondary to the task/result.
 - Monospace is limited to prompts, code and flags; long content wraps or scrolls inside its own control.
 - No image assets, pictorial logo, animation, decorative icons, gradients or invented usage statistics.
+
+Remember-device uses one unchecked checkbox in the existing login form: explicit device-storage choice, 44px label target, no additional dialog or decoration.

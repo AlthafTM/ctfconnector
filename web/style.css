@@ -109,3 +109,6 @@ dialog form>button.primary { width:100%; }
   .login-layout { margin:24px auto; }
 }
 @media(prefers-reduced-motion:reduce) { button:active { transform:none; } }
+
+.remember-device { display:flex; align-items:center; min-height:44px; cursor:pointer; }
+.remember-device input { flex-shrink:0; }

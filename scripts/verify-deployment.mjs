@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const base = 'https://althaftm.github.io/ctfconnector/';
-const paths = ['index.html', 'app.mjs', 'relay.mjs', 'crypto.mjs', 'operator-prompt.mjs', 'style.css', 'mobile.css'];
+const paths = ['index.html', 'app.mjs', 'relay.mjs', 'crypto.mjs', 'session.mjs', 'operator-prompt.mjs', 'style.css', 'mobile.css'];
 const results = await Promise.allSettled(paths.map(async path => {
   const r = await fetch(base + (path === 'index.html' ? '' : path), { cache: 'no-store', signal: AbortSignal.timeout(30000) });
   assert.equal(r.status, 200, path);

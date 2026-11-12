@@ -6,7 +6,7 @@ Codex menjadi prompt maker/operator. Solver yang diminta: **Claude desktop, Sonn
 
 ## Pakai dari HP
 
-1. Login dengan repo relay privat, fine-grained GitHub token (Contents read/write untuk relay saja), dan pairing key.
+1. Pairing pertama dengan repo relay privat, fine-grained GitHub token (Contents read/write untuk relay saja), dan pairing key. Centang **Ingat koneksi di HP ini** pada HP pribadi untuk masuk otomatis saat membuka ulang.
 2. Tekan **Soal baru**. Kirim teks atau foto; nama soal boleh kosong.
 3. Foto disalin operator menjadi teks terlebih dahulu. Review dan setujui prompt lewat website.
 4. Operator menjalankan workflow Claude, browser CTF, tool/WSL atau VM yang tersedia dalam scope. Pertanyaan dikirim ke website.
@@ -46,7 +46,7 @@ node scripts/pair.mjs
 node agent/main.mjs
 ```
 
-Setup membuat repo relay privat; tidak perlu Firebase/Supabase atau kartu pembayaran. Pairing key dilindungi Windows DPAPI dalam `.local/config.json`. Token tidak ditulis ke source. Di HP gunakan token khusus repo relay, bukan token global. Key/token hanya berada di memori tab; setelah refresh, login kembali untuk memuat riwayat.
+Setup membuat repo relay privat; tidak perlu Firebase/Supabase atau kartu pembayaran. Pairing key dilindungi Windows DPAPI dalam `.local/config.json`. Token tidak ditulis ke source. Di HP gunakan token khusus repo relay, bukan token global. Tanpa opsi Ingat koneksi, key/token hanya berada di memori tab. Jika opsi dipilih, browser menyimpan token dan CryptoKey non-extractable di IndexedDB pada perangkat itu; pairing secret teks tidak disimpan. Refresh atau buka ulang akan menghubungkan kembali. Keluar menghapus rekaman koneksi tersimpan. Hapus data situs, mode privat, token kedaluwarsa/dicabut, atau key relay berubah memerlukan pairing ulang. Penyimpanan ini bukan perlindungan terhadap script berbahaya pada origin yang sama; gunakan hanya perangkat pribadi.
 
 PC dan Codex harus menyala. Worker melakukan koneksi keluar HTTPS, tidak membuka endpoint publik. Worker background pada PC ini memakai PID dalam `.local/agent.pid` dan log `.local/agent.stdout.log` / `.local/agent.stderr.log`. Jangan start worker kedua. Setelah crash, pastikan proses lama benar-benar mati sebelum membersihkan lock kosong `.local/worker.lock`; lease cloud berlaku maksimal 180 detik.
 
