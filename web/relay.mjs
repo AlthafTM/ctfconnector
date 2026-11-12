@@ -36,10 +36,21 @@ export class GitHubRelay {
   }
   async write(path, value, sha) {
     const envelope = await seal(this.key, value, `${this.repo}/${path}`);
-    return this.api(`/contents/${path}`, { method: 'PUT', body: JSON.stringify({
+    const body = JSON.stringify({
       message: `relay: ${path.split('/')[0]}`, branch: this.branch || 'main',
       content: b64(new TextEncoder().encode(JSON.stringify(envelope))), ...(sha ? { sha } : {})
-    }) });
+    });
+    for (let attempt = 0; ; attempt++) {
+      try { return await this.api(`/contents/${path}`, { method: 'PUT', body }); }
+      catch (e) {
+        if (e.status !== 409 || attempt >= 3) throw e;
+        // Contents writes to different paths can race on the branch head.
+        // A changed file SHA is a real competing writer and must remain a conflict.
+        const current = await this.read(path);
+        if ((current?.sha || undefined) !== (sha || undefined)) throw e;
+        await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
   }
   async remove(path, sha) {
     return this.api(`/contents/${path}`, { method: 'DELETE', body: JSON.stringify({ message: 'relay: acknowledge command', sha, branch: this.branch }) });

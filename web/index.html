@@ -6,32 +6,56 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src https://api.github.com; img-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <meta name="color-scheme" content="dark">
-  <title>CTF Connector | Remote desk</title>
+  <title>CTF Connector</title>
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./mobile.css">
   <script type="module" src="./app.mjs"></script>
 </head>
 <body>
-  <header class="topbar"><a class="wordmark" href="./">ctf<span>/</span>connector</a><span class="subtitle">Remote desk</span><div class="top-actions"><span id="connection" role="status">Belum terhubung</span><button id="logout" hidden>Keluar</button></div></header>
+  <header class="topbar">
+    <a class="wordmark" href="./">CTF Connector</a>
+    <div class="top-actions"><span id="connection" role="status">Belum terhubung</span><button id="logout" hidden>Keluar</button></div>
+  </header>
   <main>
     <section id="login" class="login-layout" aria-labelledby="login-title">
-      <div class="intro"><p class="eyebrow">Dari HP ke meja kerja.</p><h1 id="login-title">Review prompt.<br>Pantau challenge dari HP.</h1><p>Review prompt, lanjutkan session, dan pantau worker di PC lewat relay privat.</p><dl class="facts"><div><dt>Relay</dt><dd>Repo GitHub privat</dd></div><div><dt>Isi pesan & file</dt><dd>AES-256-GCM</dd></div><div><dt>Solver</dt><dd>Provider pilihanmu</dd></div></dl><p class="muted">PC harus menyala dan worker aktif. Browser automation hanya aktif pada profile yang sudah diverifikasi dan memiliki izin provider.</p></div>
-      <form id="login-form" class="login-form"><h2>Hubungkan desk</h2><p>Masukkan kredensial relay milikmu. Token dan pairing key hanya ada di memori tab ini.</p><label for="repo">Repo relay privat</label><input id="repo" placeholder="owner/ctfconnector-relay" autocomplete="off" required pattern="[\w.\-]+/[\w.\-]+">
-        <label for="token">GitHub token khusus relay</label><input id="token" type="password" autocomplete="off" required spellcheck="false"><small>Fine-grained token, hanya repo relay, Contents: read/write.</small>
-        <label for="key">Pairing key dari PC</label><input id="key" type="password" autocomplete="off" required spellcheck="false" minlength="43" maxlength="43"><button class="primary" type="submit">Hubungkan ke PC</button><p id="login-error" role="alert"></p><details><summary>Setup pertama kali</summary><p>Di PC, jalankan <code>node scripts/setup.mjs</code>, lalu <code>node scripts/pair.mjs</code> untuk melihat repo dan pairing key. Jalankan worker dengan <code>node agent/main.mjs</code>.</p><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">Buat fine-grained token GitHub</a></details></form>
+      <form id="login-form" class="login-form">
+        <h1 id="login-title">Hubungkan PC</h1>
+        <label for="repo">Repo relay privat</label><input id="repo" autocomplete="off" required>
+        <label for="token">GitHub token</label><input id="token" type="password" autocomplete="off" required spellcheck="false">
+        <label for="key">Pairing key</label><input id="key" type="password" autocomplete="off" required spellcheck="false" minlength="43" maxlength="43">
+        <button class="primary" type="submit">Hubungkan</button><p id="login-error" role="alert"></p>
+        <details><summary>Setup</summary><p><code>node scripts/pair.mjs</code> di PC. Token GitHub: Contents read/write untuk repo relay saja.</p><a href="https://github.com/AlthafTM/ctfconnector#instalasi-dan-start-di-windows" target="_blank" rel="noreferrer">Panduan</a></details>
+      </form>
     </section>
-    <section id="desk" hidden aria-label="Dashboard remote">
-      <div class="desk-heading"><div><p class="eyebrow">Workspace kamu</p><h1>Remote desk</h1></div><div class="toolbar"><button id="refresh">Sinkronkan</button><button id="new-task" class="primary">Challenge baru</button><button id="emergency" class="danger">Emergency stop</button><button id="reset-emergency" hidden>Reset emergency</button></div></div>
-      <p id="notice" role="status" class="notice">Menunggu snapshot worker.</p>
+    <section id="desk" hidden aria-label="Dashboard">
+      <div class="desk-heading"><div class="toolbar"><button id="new-task" class="primary">Soal baru</button><button id="refresh">Sinkronkan</button><button id="emergency" class="danger">Stop semua</button><button id="reset-emergency" hidden>Reset stop</button></div></div>
+      <p id="notice" role="status" class="notice">Menunggu worker.</p>
       <div class="workspace">
-        <aside class="sidebar"><h2>Challenges <span id="count">0</span></h2><nav id="task-list" aria-label="Daftar challenge"></nav><p id="empty-list" class="muted">Belum ada challenge. Mulai dari tombol Challenge baru.</p><section class="providers"><h2>Provider desk</h2><div id="providers"></div><small>Kuota Unknown berarti belum ada pengukuran resmi. Tidak ada rotasi akun otomatis.</small></section></aside>
-        <section id="task-view" class="task-view" aria-label="Challenge aktif"><div class="empty"><h2>Siapkan challenge pertama.</h2><p>Tambahkan deskripsi dan file, lalu review prompt sebelum diteruskan ke provider.</p></div></section>
-        <aside class="monitor"><h2>Worker monitor</h2><dl id="monitor-data"></dl><details open><summary>Activity log</summary><ol id="audit" class="audit"></ol></details></aside>
+        <aside class="sidebar">
+          <h2>Soal <span id="count">0</span></h2><nav id="task-list" aria-label="Daftar soal"></nav><p id="empty-list" class="muted">Belum ada soal.</p>
+          <details class="providers"><summary>Provider</summary><div id="providers"></div></details>
+        </aside>
+        <section id="task-view" class="task-view" aria-label="Soal aktif"><p class="empty">Kirim teks atau foto lewat Soal baru.</p></section>
+        <aside class="monitor"><details><summary>Detail worker</summary><dl id="monitor-data"></dl><details><summary>Log</summary><ol id="audit" class="audit"></ol></details></details></aside>
       </div>
     </section>
+    <footer><button id="prompt-maker">Prompt untuk AI prompt maker</button></footer>
   </main>
-  <dialog id="create-dialog"><form id="create-form"><div class="dialog-heading"><h2>Challenge baru</h2><button type="button" id="close-create" aria-label="Tutup form challenge">Tutup</button></div><label for="name">Nama challenge</label><input id="name" required maxlength="180"><div class="form-row"><div><label for="category">Kategori</label><select id="category"><option value="auto">Deteksi awal dari deskripsi/file</option><option value="misc">Misc</option><option value="pwn">Pwn</option><option value="rev">Reverse engineering</option><option value="web">Web</option><option value="crypto">Crypto</option><option value="forensics">Forensics</option><option value="stego">Stego</option><option value="osint">OSINT</option></select></div><div><label for="provider">Provider</label><select id="provider"><option value="chatgpt">ChatGPT</option><option value="claude">Claude</option><option value="gemini">Gemini</option></select></div></div><label for="profile">Profile browser</label><input id="profile" value="default" required pattern="[\w\-]{1,80}"><label for="description">Deskripsi, hints, dan progres</label><textarea id="description" rows="6" required maxlength="100000"></textarea><label for="scope">Target/scope yang diizinkan</label><textarea id="scope" rows="2" maxlength="4000" placeholder="Host:port, URL, atau hanya file terlampir"></textarea><label for="flag-format">Format flag (jika tahu)</label><input id="flag-format" maxlength="100" placeholder="CTF{...}"><label for="files">File / screenshot</label><input id="files" type="file" multiple><small>Maksimal 10 file, 20 MiB per file. File dienkripsi dan tidak dieksekusi worker.</small><button class="primary" type="submit">Kirim ke orchestrator</button><p id="create-error" role="alert"></p></form></dialog>
-  <dialog id="confirm-dialog"><form method="dialog"><h2 id="confirm-title">Konfirmasi tindakan</h2><p id="confirm-text"></p><div class="toolbar"><button value="cancel">Batal</button><button value="yes" class="danger">Ya, lanjutkan</button></div></form></dialog>
-  <dialog id="image-dialog"><button id="close-image">Tutup gambar</button><img id="preview-image" alt="Preview attachment challenge" width="900" height="600"></dialog>
+  <dialog id="create-dialog"><form id="create-form">
+    <div class="dialog-heading"><h2>Soal baru</h2><button type="button" id="close-create" aria-label="Tutup soal baru">Tutup</button></div>
+    <label for="name">Nama soal (opsional)</label><input id="name" maxlength="180">
+    <label for="description">Teks soal (opsional jika ada foto)</label><textarea id="description" rows="4" maxlength="100000"></textarea>
+    <label for="files">Foto / file soal</label><input id="files" type="file" multiple><small>10 file, maksimal 20 MiB per file.</small>
+    <details><summary>Detail soal</summary>
+      <label for="category">Kategori</label><select id="category"><option value="auto">Deteksi awal</option><option value="misc">Misc</option><option value="pwn">Pwn</option><option value="rev">Reverse engineering</option><option value="web">Web</option><option value="crypto">Crypto</option><option value="forensics">Forensics</option><option value="stego">Stego</option><option value="osint">OSINT</option></select>
+      <label for="scope">Scope / target</label><textarea id="scope" rows="2" maxlength="4000"></textarea>
+      <label for="flag-format">Format flag</label><input id="flag-format" maxlength="100" placeholder="CTF{...}">
+      <label for="profile">Profile Claude</label><input id="profile" value="default" required maxlength="80">
+    </details>
+    <button class="primary" type="submit">Kirim soal</button><p id="create-error" role="alert"></p>
+  </form></dialog>
+  <dialog id="confirm-dialog"><form method="dialog"><h2 id="confirm-title">Konfirmasi</h2><p id="confirm-text"></p><div class="toolbar"><button value="cancel">Batal</button><button value="yes" class="danger">Ya, lanjutkan</button></div></form></dialog>
+  <dialog id="image-dialog"><button id="close-image">Tutup gambar</button><img id="preview-image" alt="File soal" width="900" height="600"></dialog>
+  <dialog id="maker-dialog"><div class="dialog-heading"><h2>Prompt maker</h2><button id="close-maker">Tutup</button></div><label for="maker-text">Prompt lengkap</label><textarea id="maker-text" rows="15" readonly></textarea><button id="copy-maker" class="primary">Salin prompt</button><p id="maker-status" role="status"></p></dialog>
 </body>
 </html>

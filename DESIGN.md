@@ -1,14 +1,13 @@
-# CTF remote desk
+# Functional remote CTF panel
 
-Reading this as: mobile remote operations desk for a CTF participant, in a quiet field-notebook style, dial ENERGY 1 / RHYTHM 2 / MOTION 1.
+Reading this as: a phone control panel for a CTF operator, with a compact native-tool visual language, dial ENERGY 1 / RHYTHM 1 / MOTION 1.
 
-- Dark olive neutrals reduce glare while reading long technical responses; dark mode is explicitly requested.
-- Pale citron highlights the approval action, the point where user authorization matters most.
-- Segoe UI uses Windows' native readable interface typography; monospace is reserved for prompts and code.
-- The slash in the product wordmark repeats the task/provider/profile hierarchy; no invented logo or illustration.
-- Challenge navigation, conversation and monitor form three columns on desktop because they have different jobs. Mobile stacks them so controls remain reachable.
-- On mobile, challenge content comes before provider details so quota/model notes do not push prompt review below the first screen.
-- Review is a bordered document panel because the whole prompt needs inspection. Provider status uses compact rows rather than promotional cards.
-- Spacing separates authorization, provider handoff and conversation; 44px targets support phone use.
-- Static layout avoids motion competing with incoming messages. Keyboard focus uses the same citron accent.
-- Functional status labels report persisted worker state. No fabricated quota, online status, flag acceptance, or automated provider access.
+- Functionality comes first: create/select task, review prompt, answer questions, receive flag/link/optional solver.
+- Plain text title replaces the marketing intro because the user asked for minimal copy.
+- Dark neutral/olive surfaces suit the requested tool interface; existing tested text contrast is retained.
+- Citron identifies the primary action and result, rather than decorating every panel.
+- Native Segoe UI and 44px controls support fast reading and tapping on a phone.
+- Task navigation is beside content on desktop and above it on mobile.
+- Provider details, controls and logs are folded because they are secondary to the task/result.
+- Monospace is limited to prompts, code and flags; long content wraps or scrolls inside its own control.
+- No image assets, pictorial logo, animation, decorative icons, gradients or invented usage statistics.

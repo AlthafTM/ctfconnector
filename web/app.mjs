@@ -1,10 +1,13 @@
 import { GitHubRelay } from './relay.mjs';
 import { keyFromSecret } from './crypto.mjs';
+import { promptMakerInstructions } from './operator-prompt.mjs';
 const $ = id => document.getElementById(id);
 let relay, state, selected, timer, polling = false, signedIn = false, renderSignature = '', generation = 0, pollFailures = 0;
 const urls = new Set(), pendingCommands = new Set();
 function el(tag, text, className) { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (className) n.className = className; return n; }
 function append(parent, ...children) { parent.append(...children); return parent; }
+function disclosure(title, ...children) { const d = el('details'); d.append(el('summary', title), ...children); return d; }
+const statusNames = { WAITING_FOR_TRANSCRIPTION: 'Baca foto', WAITING_FOR_APPROVAL: 'Review prompt', WAITING_FOR_OPERATOR: 'Menunggu Codex', AI_WORKING: 'Dikerjakan', WAITING_FOR_USER: 'Butuh jawaban', RATE_LIMITED: 'Limit provider', PAUSED: 'Dijeda', STOPPED: 'Dihentikan', COMPLETED: 'Selesai', FAILED: 'Gagal', SUBMITTING_PROMPT: 'Menyiapkan' };
 function time(at) { return at ? new Date(at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'medium' }) : 'Belum ada'; }
 function notify(text) { $('notice').textContent = text; }
 async function action(button, fn) {
@@ -50,25 +53,40 @@ function filesPanel(files, title) {
 }
 function renderTask(t) {
   const view = $('task-view');
-  const draft = Object.fromEntries(['prompt-draft', 'message-draft', 'response-draft', 'session-url'].map(id => [id, $(id)?.value]));
+  const draft = Object.fromEntries(['prompt-draft', 'message-draft', 'response-draft', 'session-url', 'result-flag', 'result-chat', 'answer-text', 'transcript-text', 'limit-notice'].map(id => [id, $(id)?.value]));
+  const checkboxes = Object.fromEntries(['needs-solver','followup'].map(id => [id, $(id)?.checked]));
+  const selectedFiles = Object.fromEntries([...view.querySelectorAll('input[type=file]')].map(n => [n.id, [...n.files]]));
+  const detailKey = d => d.querySelector('summary')?.textContent.replace(/\([^)]*\)|\/ revisi \d+/g, '').trim();
+  const openSections = new Map([...view.querySelectorAll('details')].map(d => [detailKey(d), d.open]));
   const oldId = view.dataset.taskId, oldRev = view.dataset.revision;
   view.replaceChildren(); view.dataset.taskId = t.id; view.dataset.revision = t.revision;
-  const heading = el('div', undefined, 'task-title'); append(heading, el('h2', t.name), el('span', t.status, 'status')); view.append(heading);
-  view.append(el('p', `${t.category} / ${t.provider} / profile ${t.profile}`, 'scope'), el('p', `Scope: ${t.scope || 'Lihat deskripsi challenge'}`, 'scope'));
+  const heading = el('div', undefined, 'task-title'); append(heading, el('h2', t.name), el('span', statusNames[t.status] || t.status, 'status')); view.append(heading);
+  if (t.result) {
+    const result = el('section', undefined, 'result'); result.append(el('h3', 'Hasil'), el('pre', t.result.flag));
+    const actions = el('div', undefined, 'toolbar'), link = el('a', 'Buka chat AI'); link.href = t.result.chatUrl; link.target = '_blank'; link.rel = 'noreferrer';
+    actions.append(button('Salin flag', () => navigator.clipboard.writeText(t.result.flag).then(() => notify('Flag disalin.'))), link); result.append(actions);
+    if (t.result.solverRequired) result.append(filesPanel(t.result.solverFiles, 'Solver'));
+    view.append(result);
+  }
+  if (t.transcriptionRequired) view.append(el('p', 'Foto tersimpan. Operator akan menyalin soal ke teks sebelum dikirim ke Claude.', 'notice'));
+  if (t.question) {
+    const form = el('form', undefined, 'question'), answer = field(t.question, 'answer-text'); answer.n.required = true;
+    const submit = el('button', 'Kirim jawaban', 'primary'); submit.type = 'submit'; append(form, answer.wrap, submit);
+    form.addEventListener('submit', e => { e.preventDefault(); action(submit, () => send('answer', t.id, { text: answer.n.value })); }); view.append(form);
+  }
   const description = el('details'); append(description, el('summary', 'Deskripsi challenge'), richText(t.description)); view.append(description);
   const controls = el('div', undefined, 'toolbar');
   controls.append(button('Jeda', () => send('pause', t.id), '', ['PAUSED', 'STOPPED', 'COMPLETED'].includes(t.status)),
     button('Lanjutkan', () => send('resume', t.id), '', t.status !== 'PAUSED' || state.emergency),
     button('Hentikan', async () => { if (await confirmAction('Hentikan task?', 'Worker akan membatalkan operasi task ini. Respons yang sudah berjalan di provider mungkin tetap berjalan.')) await send('stop', t.id); }, 'danger', t.status === 'STOPPED'),
     button('Retry dengan review', () => send('retry', t.id), '', !['FAILED','RATE_LIMITED','STOPPED'].includes(t.status)),
-    button('Tandai selesai', () => send('complete', t.id), '', !!t.pending || t.status !== 'WAITING_FOR_USER'));
-  view.append(controls);
-  if (t.candidateFlag) {
+    button('Tandai selesai', () => send('complete', t.id), '', !!t.pending || t.status !== 'WAITING_FOR_USER' || (t.provider === 'claude' && !t.result)));
+  view.append(disclosure('Kontrol task', controls));
+  if (t.candidateFlag && !t.result) {
     const flag = el('section', undefined, 'flag'); append(flag, el('h3', 'Kandidat flag'), el('pre', t.candidateFlag), el('p', 'Belum berarti diterima scoreboard.'), button('Salin kandidat flag', () => navigator.clipboard.writeText(t.candidateFlag).then(() => notify('Kandidat flag disalin.')))); view.append(flag);
   }
   if (t.prompt) {
-    const approval = el('section', undefined, 'approval'); approval.append(el('h3', `Prompt / revisi ${t.revision}`));
-    approval.append(el('p', t.approvedRevision === t.revision ? 'Versi ini sudah kamu setujui.' : 'Review scope dan isi sebelum dikirim ke provider.'));
+    const approval = el('details', undefined, 'approval'); approval.open = t.status === 'WAITING_FOR_APPROVAL'; approval.append(el('summary', `Prompt / revisi ${t.revision}`));
     const { wrap, n } = field('Isi prompt lengkap', 'prompt-draft', 'textarea', t.prompt); n.readOnly = !['WAITING_FOR_APPROVAL','WAITING_FOR_USER'].includes(t.status) || !!t.pending;
     approval.append(wrap);
     const bar = el('div', undefined, 'toolbar');
@@ -81,12 +99,18 @@ function renderTask(t) {
       button('Tolak prompt', () => send('reject', t.id), '', t.status !== 'WAITING_FOR_APPROVAL'));
     approval.append(bar); view.append(approval);
   }
-  if (t.files.length) view.append(filesPanel(t.files, 'Attachment challenge'));
-  if (t.artifacts?.length) view.append(filesPanel(t.artifacts, 'Artefak hasil kerja'));
-  const conversation = el('section'), info = el('p', 'Buka provider di HP/PC untuk handoff manual. Pastikan model dan akun memakai free tier.', 'muted');
+  if (t.files.length) view.append(disclosure(`File soal (${t.files.length})`, filesPanel(t.files, 'Attachment')));
+  if (t.artifacts?.length) view.append(disclosure('File lain', filesPanel(t.artifacts, 'Artefak')));
+  const conversation = el('details'), info = el('p', 'Claude desktop: Sonnet 5, Thinking OFF, akun Free.', 'muted');
   const a = el('a', t.sessionUrl ? 'Buka conversation tersimpan' : 'Buka provider resmi');
   a.href = t.sessionUrl || state.providers.find(p => p.id === t.provider).url; a.target = '_blank'; a.rel = 'noreferrer';
-  append(conversation, el('h3', 'Conversation & provider'), a, info);
+  append(conversation, el('summary', 'Operator'), a, info);
+  if (t.localError) conversation.append(el('p', t.localError), button('Retry file lokal', () => send('retry_local', t.id)));
+  const settingsForm = el('form'), checked = el('input'); checked.type = 'checkbox'; checked.id = 'settings-checked'; checked.required = true;
+  const checkedLabel = el('label'); checkedLabel.htmlFor = checked.id; checkedLabel.append(checked, document.createTextNode('Sonnet 5, Thinking OFF, dan akun Free sudah saya cek di aplikasi.'));
+  const settingsButton = el('button', 'Catat pemeriksaan'); settingsButton.type = 'submit'; settingsForm.append(checkedLabel, settingsButton);
+  settingsForm.addEventListener('submit', e => { e.preventDefault(); action(settingsButton, () => send('operator_settings', t.id, { model: 'Sonnet 5', thinking: 'off', freeTier: true, evidence: 'User/operator mengonfirmasi pemeriksaan UI aplikasi melalui website.' })); });
+  conversation.append(disclosure('Pemeriksaan model', settingsForm));
   const limitInfo = field('Pesan limit / waktu reset dari provider (jika ada)', 'limit-notice', 'input'); limitInfo.n.maxLength = 2000;
   const limitBar = el('div', undefined, 'toolbar');
   limitBar.append(button('Laporkan limit provider', async () => {
@@ -96,7 +120,7 @@ function renderTask(t) {
   }, '', t.status !== 'RATE_LIMITED'));
   conversation.append(limitInfo.wrap, limitBar);
   const row = el('div', undefined, 'form-row'), provider = field('Pindah provider', 'switch-provider', 'select'), profile = field('Profile yang diotorisasi', 'switch-profile', 'input', t.profile);
-  for (const p of state.providers) { const o = el('option', p.name); o.value = p.id; o.selected = p.id === t.provider; provider.n.append(o); }
+  for (const p of state.providers.filter(p => p.id === 'claude' || p.id === t.provider)) { const o = el('option', p.name); o.value = p.id; o.selected = p.id === t.provider; provider.n.append(o); }
   append(row, provider.wrap, profile.wrap); conversation.append(row, button('Pindah dengan context handoff', async () => {
     if (await confirmAction('Pindah provider/profile?', 'Riwayat dibawa ke prompt baru untuk review. Tindakan ini tidak mengizinkan bypass limit provider.')) await send('switch', t.id, { provider: provider.n.value, profile: profile.n.value });
   }, '', !!t.pending || ['SUBMITTING_PROMPT','AI_WORKING'].includes(t.status)));
@@ -106,17 +130,36 @@ function renderTask(t) {
     if (!text.n.value.trim()) throw new Error('Respons masih kosong.');
     await send('response', t.id, { text: text.n.value, url: url.n.value.trim() }); text.n.value = '';
   }, '', !['WAITING_FOR_USER','AI_WORKING','RATE_LIMITED'].includes(t.status) || t.approvedRevision !== t.revision)); conversation.append(response); view.append(conversation);
-  const messages = el('section', undefined, 'messages'); messages.append(el('h3', 'Percakapan task'));
+  const resultForm = el('form'), flagField = field('Flag', 'result-flag', 'input', t.result?.flag || t.candidateFlag || ''), chatField = field('Link chat AI', 'result-chat', 'input', t.sessionUrl || '');
+  flagField.n.required = true; chatField.n.required = true; chatField.n.type = 'url';
+  const needsSolver = el('input'); needsSolver.type = 'checkbox'; needsSolver.id = 'needs-solver';
+  const solverLabel = el('label'); solverLabel.htmlFor = needsSolver.id; solverLabel.append(needsSolver, document.createTextNode('Perlu script solver'));
+  const solverInput = field('File solver', 'result-solvers', 'input'); solverInput.n.type = 'file'; solverInput.n.multiple = true; solverInput.n.disabled = true;
+  needsSolver.addEventListener('change', () => { solverInput.n.disabled = !needsSolver.checked; solverInput.n.required = needsSolver.checked; if (!needsSolver.checked) solverInput.n.value = ''; });
+  const publishResult = el('button', 'Kirim hasil', 'primary'); publishResult.type = 'submit';
+  publishResult.disabled = !['AI_WORKING','WAITING_FOR_USER','WAITING_FOR_OPERATOR'].includes(t.status) || t.approvedRevision !== t.revision;
+  append(resultForm, flagField.wrap, chatField.wrap, solverLabel, solverInput.wrap, publishResult);
+  resultForm.addEventListener('submit', e => { e.preventDefault(); action(publishResult, async () => {
+    const files = Array.from(solverInput.n.files); if (files.length > 10 || files.some(f => f.size > 20 * 1024 * 1024)) throw new Error('Maksimal 10 file solver, 20 MiB per file.');
+    const solverFiles = []; for (const file of files) solverFiles.push(await relay.upload(file));
+    await send('result', t.id, { flag: flagField.n.value, chatUrl: chatField.n.value, solverRequired: needsSolver.checked, solverFiles, validation: 'candidate' });
+  }); }); conversation.append(disclosure('Kirim hasil operator', resultForm));
+  const draftForm = el('form'), transcript = field('Teks soal dari foto', 'transcript-text'); transcript.n.required = true;
+  const draftButton = el('button', 'Simpan teks & buat prompt'); draftButton.type = 'submit'; draftForm.append(transcript.wrap, draftButton);
+  draftForm.addEventListener('submit', e => { e.preventDefault(); action(draftButton, () => send('transcribe', t.id, { text: transcript.n.value })); });
+  if (!t.pending && !['COMPLETED','STOPPED','PAUSED','AI_WORKING'].includes(t.status)) conversation.append(disclosure('Transkripsi soal', draftForm));
+  const take = button('Ambil sebagai operator', () => send('take', t.id, { operationId: t.pending?.id }), '', t.status !== 'WAITING_FOR_OPERATOR'); conversation.append(take);
+  const messages = el('details', undefined, 'messages'); messages.append(el('summary', `Aktivitas (${t.messages.length})`));
   for (const m of t.messages) {
     const entry = el('article', undefined, `message ${m.role}`), header = el('div', undefined, 'message-header');
     append(header, el('strong', ({user:'Kamu',agent:'Orchestrator',provider:'Provider'})[m.role] || m.role), el('time', time(m.at)));
     append(entry, header, richText(m.text)); messages.append(entry);
   } view.append(messages);
-  const form = el('form', undefined, 'composer'), message = field('Pesan / instruksi tambahan', 'message-draft'); message.n.required = true;
+  const form = el('form', undefined, 'composer'), message = field('Pesan', 'message-draft'); message.n.rows = 2;
   const moreFiles = field('File tambahan (membuat prompt untuk review ulang)', 'message-files', 'input'); moreFiles.n.type = 'file'; moreFiles.n.multiple = true;
   const label = el('label', undefined, 'inline'), follow = el('input'); follow.type = 'checkbox'; follow.id = 'followup'; label.htmlFor = follow.id;
   append(label, follow, document.createTextNode('Teruskan ke provider dalam scope yang sudah disetujui.'));
-  const submit = el('button', 'Kirim pesan', 'primary'); submit.type = 'submit'; append(form, message.wrap, moreFiles.wrap, label, submit);
+  const submit = el('button', 'Kirim pesan', 'primary'); submit.type = 'submit'; append(form, message.wrap, disclosure('Lampiran & follow-up', moreFiles.wrap, label), submit);
   form.addEventListener('submit', e => { e.preventDefault(); action(submit, async () => {
     const uploads = Array.from(moreFiles.n.files);
     if (uploads.length) {
@@ -124,10 +167,18 @@ function renderTask(t) {
       if (uploads.length + t.files.length > 10 || uploads.some(f => f.size > 20 * 1024 * 1024)) throw new Error('Maksimal 10 attachment, masing-masing 20 MiB.');
       const files = []; for (const f of uploads) { notify(`Mengunggah ${f.name}...`); files.push(await relay.upload(f)); }
       await send('attachments', t.id, { files, text: message.n.value });
-    } else await send('message', t.id, { text: message.n.value, followup: follow.checked });
+    } else { if (!message.n.value.trim()) throw new Error('Isi pesan atau pilih file.'); await send('message', t.id, { text: message.n.value, followup: follow.checked }); }
     message.n.value = ''; moreFiles.n.value = ''; follow.checked = false;
   }); }); view.append(form);
   if (oldId === t.id) for (const [id, value] of Object.entries(draft)) if (value !== undefined && $(id) && (id !== 'prompt-draft' || oldRev === String(t.revision))) $(id).value = value;
+  if (oldId === t.id) {
+    for (const d of view.querySelectorAll('details')) if (openSections.has(detailKey(d)) && !(d.classList.contains('approval') && oldRev !== String(t.revision))) d.open = openSections.get(detailKey(d));
+    for (const [id, checked] of Object.entries(checkboxes)) if (checked !== undefined && $(id)) { $(id).checked = checked; $(id).dispatchEvent(new Event('change')); }
+    for (const [id, files] of Object.entries(selectedFiles)) if (files.length && $(id)) {
+      try { const transfer = new DataTransfer(); for (const file of files) transfer.items.add(file); $(id).files = transfer.files; }
+      catch { notify('Update diterima. Pilih ulang lampiran yang belum dikirim.'); }
+    }
+  }
 }
 function render() {
   const tasks = Object.values(state.tasks);
@@ -136,13 +187,13 @@ function render() {
   $('task-list').replaceChildren();
   for (const t of tasks) {
     const b = button(t.name, () => { selected = t.id; renderSignature = ''; render(); }); b.className = 'task-choice'; b.setAttribute('aria-current', String(t.id === selected));
-    b.append(el('small', t.status)); $('task-list').append(b);
+    b.append(el('small', statusNames[t.status] || t.status)); $('task-list').append(b);
   }
   $('providers').replaceChildren();
   for (const p of state.providers) {
     const n = el('article', undefined, 'provider-row'); append(n, el('strong', p.name), el('p', p.status), el('p', `${p.status === 'CONNECTED' ? 'Model teramati' : 'Model diminta'}: ${p.model}`), el('p', `Profile: ${p.profile || 'belum aktif'}`), el('p', `Sisa: ${p.remaining || 'Unknown'}`));
     const a = el('a', 'Sumber model/free tier'); a.href = p.source; a.target = '_blank'; a.rel = 'noreferrer'; n.append(a);
-    const verification = { CONFLICTING_CURRENT_SOURCES: 'Model gratis saat ini perlu dicek ulang.', HISTORICAL_FREE_CURRENT_UNVERIFIED: 'Pernah tersedia gratis; akses sekarang belum diverifikasi.', UNVERIFIED_FREE: 'Akses model ini di free tier belum terverifikasi.' };
+    const verification = { ACCOUNT_UI_RECHECK_REQUIRED: 'Cek Sonnet 5 dan Thinking OFF di aplikasi sebelum kirim.', CONFLICTING_CURRENT_SOURCES: 'Model gratis saat ini perlu dicek ulang.', HISTORICAL_FREE_CURRENT_UNVERIFIED: 'Perlu pemeriksaan ulang pada akun.', UNVERIFIED_FREE: 'Akses free tier belum terverifikasi.' };
     n.append(el('p', verification[p.verification] || 'Periksa model pada akun provider.')); if (p.limitNotice) n.append(el('p', p.limitNotice)); $('providers').append(n);
   }
   const task = state.tasks[selected];
@@ -196,6 +247,9 @@ $('refresh').addEventListener('click', () => { clearTimeout(timer); poll(); });
 $('new-task').addEventListener('click', () => $('create-dialog').showModal());
 $('close-create').addEventListener('click', () => $('create-dialog').close());
 $('close-image').addEventListener('click', () => $('image-dialog').close());
+$('prompt-maker').addEventListener('click', () => { $('maker-text').value = promptMakerInstructions(selected || '<TASK_ID>'); $('maker-dialog').showModal(); });
+$('close-maker').addEventListener('click', () => $('maker-dialog').close());
+$('copy-maker').addEventListener('click', e => action(e.target, () => navigator.clipboard.writeText($('maker-text').value).then(() => { $('maker-status').textContent = 'Prompt disalin.'; })));
 $('image-dialog').addEventListener('close', () => { const url = $('preview-image').src; URL.revokeObjectURL(url); urls.delete(url); $('preview-image').removeAttribute('src'); });
 $('emergency').addEventListener('click', e => action(e.target, async () => {
   if (await confirmAction('Emergency stop semua task?', 'Worker akan membatalkan semua operasi yang dikelolanya saat command diterima. Jika koneksi putus, hentikan worker langsung di PC.')) await send('emergency', null);
@@ -205,13 +259,14 @@ $('create-form').addEventListener('submit', async e => {
   e.preventDefault(); const b = e.submitter; b.disabled = true; const currentRelay = relay;
   try {
     const uploads = Array.from($('files').files);
+    if (!$('description').value.trim() && !uploads.length) throw new Error('Isi teks soal atau lampirkan foto/file.');
     if (uploads.length > 10 || uploads.some(f => f.size > 20 * 1024 * 1024)) throw new Error('Maksimal 10 file, masing-masing 20 MiB.');
     const files = [];
     for (const f of uploads) { $('create-error').textContent = `Mengenkripsi dan mengunggah ${f.name}...`; files.push(await currentRelay.upload(f)); }
     if (!signedIn || currentRelay !== relay) throw new Error('Session logout saat upload. Masuk kembali.');
     const taskId = crypto.randomUUID();
-    await send('create', taskId, { name: $('name').value, category: $('category').value, description: $('description').value, scope: $('scope').value,
-      flagFormat: $('flag-format').value, provider: $('provider').value, profile: $('profile').value, files });
+    await send('create', taskId, { name: $('name').value.trim() || `Soal ${new Date().toLocaleString('id-ID')}`, category: $('category').value, description: $('description').value, scope: $('scope').value,
+      flagFormat: $('flag-format').value, provider: 'claude', profile: $('profile').value, files, inputMode: !$('description').value.trim() && uploads.some(f => f.type.startsWith('image/')) ? 'photo' : 'text' });
     selected = taskId; $('create-dialog').close(); $('create-form').reset(); $('profile').value = 'default'; $('create-error').textContent = '';
   } catch (e) { $('create-error').textContent = e.message; } finally { b.disabled = false; }
 });

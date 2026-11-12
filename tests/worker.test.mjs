@@ -58,3 +58,18 @@ test('pause aborts an actual running operation and resume waits for user without
     await w.process(command('resume', id)); assert.equal(w.state.tasks[id].status, 'WAITING_FOR_USER');
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+test('desktop operator waits for take and never invokes the browser adapter', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ctf-native-')), r = new MemoryRelay(await keyFromSecret(Buffer.alloc(32, 10).toString('base64url')));
+  const cfg = { profiles: { 'claude:default': { mode: 'operator' } } }, browser = { close() {}, submit() { throw new Error('Native workflow must not call CDP'); } };
+  try {
+    const w = new Worker(r, cfg, browser, dir); await w.start(); const id = crypto.randomUUID();
+    await w.process(command('create', id, { name: 'TEST native packet', category: 'misc', description: 'Fixture only', provider: 'claude', files: [], testOnly: true }));
+    await w.process(command('approve', id, { revision: 1 })); await w.runTask(id, w.state.tasks[id].pending.id, new AbortController().signal);
+    assert.equal(w.state.tasks[id].status, 'WAITING_FOR_OPERATOR'); assert.equal(w.state.tasks[id].pending.stage, 'operator');
+    await w.process(command('operator_settings', id, { model: 'Sonnet 5', thinking: 'off', freeTier: true, evidence: 'TEST receipt only' }));
+    await w.process(command('take', id, { operationId: w.state.tasks[id].pending.id }));
+    await w.process(command('session', id, { url: 'https://claude.ai/chat/fixture' }));
+    await w.process(command('result', id, { flag: 'DEMO{fixture_only}', chatUrl: 'https://claude.ai/chat/fixture', solverRequired: false }));
+    assert.equal(w.state.tasks[id].status, 'COMPLETED'); assert.equal(w.state.tasks[id].result.flag, 'DEMO{fixture_only}');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

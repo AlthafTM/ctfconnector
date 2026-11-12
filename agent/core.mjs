@@ -1,4 +1,5 @@
 import { generatePrompt, inferCategory } from './prompt.mjs';
+import { SOLVER_POLICY } from './operator-prompt.mjs';
 export const providers = [
   { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com/', requestedModel: 'GPT-5.5 Instant', verification: 'CONFLICTING_CURRENT_SOURCES', source: 'https://help.openai.com/en/articles/9275245-chatgpt-free-tier-faq' },
   { id: 'claude', name: 'Claude', url: 'https://claude.ai/new', requestedModel: 'Claude Sonnet 5', verification: 'HISTORICAL_FREE_CURRENT_UNVERIFIED', source: 'https://www.anthropic.com/news/claude-sonnet-5' },
@@ -11,6 +12,10 @@ export function log(s, task, text, role = 'agent') {
   if (task) { task.messages.push(item); task.lastOperation = text.slice(0, 180); }
 }
 function bounded(value, max = 100000) { if (typeof value !== 'string' || value.length > max) throw new Error('Input teks tidak valid/terlalu panjang.'); return value; }
+function revise(t) {
+  t.revision++; t.approvedRevision = null;
+  if (t.result) { t.previousResults ||= []; t.previousResults.push(t.result); t.result = null; t.candidateFlag = null; }
+}
 export function applyCommand(s, c) {
   if (!c || !/^[0-9a-f-]{36}$/.test(c.id) || !c.payload || typeof c.payload !== 'object') throw new Error('Command tidak valid.');
   if (Object.hasOwn(s.processed, c.id)) return false;
@@ -24,10 +29,13 @@ export function applyCommand(s, c) {
       description: bounded(p.description), scope: bounded(p.scope || '', 4000), flagFormat: bounded(p.flagFormat || '', 100),
       provider: p.provider, profile: bounded(p.profile || 'default', 80), files: p.files, messages: [], status: 'PREPARING_PROMPT',
       revision: 1, approvedRevision: null, sessionUrl: null, candidateFlag: null, pending: null };
+    t.solverPolicy = { ...SOLVER_POLICY };
+    t.testOnly = p.testOnly === true;
+    t.transcriptionRequired = p.inputMode === 'photo';
     if (t.category === 'auto') { t.category = inferCategory(t.description, t.files); t.categoryInferred = true; }
     log(s, t, 'Challenge diterima. Orchestrator menyiapkan prompt, tidak menjalankan solver.');
-    t.prompt = generatePrompt(t); t.status = 'WAITING_FOR_APPROVAL';
-    log(s, t, 'Prompt siap ditinjau. Belum dikirim ke provider.');
+    t.prompt = t.transcriptionRequired ? '' : generatePrompt(t); t.status = t.transcriptionRequired ? 'WAITING_FOR_TRANSCRIPTION' : 'WAITING_FOR_APPROVAL';
+    log(s, t, t.transcriptionRequired ? 'Foto diterima. Menunggu operator membaca dan menyalin soal menjadi teks.' : 'Prompt siap ditinjau. Belum dikirim ke provider.');
   } else if (c.type === 'emergency') {
     s.emergency = true;
     for (const x of Object.values(s.tasks)) if (!['COMPLETED', 'STOPPED'].includes(x.status)) { x.status = 'STOPPED'; x.pending = null; x.followups = []; log(s, x, 'Emergency stop diterima.'); }
@@ -36,11 +44,49 @@ export function applyCommand(s, c) {
   } else {
     if (!t) throw new Error('Task tidak ditemukan.');
     switch (c.type) {
+      case 'transcribe':
+        if (t.pending || ['AI_WORKING','PAUSED','STOPPED','COMPLETED'].includes(t.status)) throw new Error('Transkripsi hanya sebelum pengiriman, atau setelah operasi dihentikan dan direview ulang.');
+        t.description = bounded(p.text); if (!t.description.trim()) throw new Error('Transkripsi kosong.');
+        t.transcriptionRequired = false; revise(t);
+        if (t.categoryInferred || t.category === 'auto') t.category = inferCategory(t.description, t.files);
+        t.prompt = generatePrompt(t); t.status = 'WAITING_FOR_APPROVAL'; log(s, t, 'Transkripsi teks siap. Review prompt sebelum dikirim ke Claude.'); break;
+      case 'operator_settings':
+        if (!/^(Claude )?Sonnet 5$/.test(p.model) || p.thinking !== 'off' || p.freeTier !== true || !p.evidence?.trim()) throw new Error('Wajib Sonnet 5 tepat, Thinking OFF, akun Free, dan bukti observasi UI.');
+        t.operatorSettings = { model: 'Sonnet 5', thinking: 'off', freeTier: true, evidence: bounded(p.evidence, 2000), observedAt: Date.now(), revision: t.revision };
+        log(s, t, 'Operator mencatat Sonnet 5, Thinking OFF, akun Free dari UI.'); break;
+      case 'take':
+        if (s.emergency || !t.pending || t.status !== 'WAITING_FOR_OPERATOR' || t.pending.id !== p.operationId || t.approvedRevision !== t.revision) throw new Error('Task/approval operator tidak sesuai.');
+        requireOperatorSettings(t); t.pending.stage = 'native'; t.status = 'AI_WORKING'; log(s, t, 'Operator mengambil task untuk Claude desktop.'); break;
+      case 'operator_note': log(s, t, bounded(p.text)); break;
+      case 'session':
+        if (t.approvedRevision !== t.revision || ['STOPPED','PAUSED'].includes(t.status)) throw new Error('Session memerlukan task disetujui yang aktif.');
+        t.sessionUrl = validSessionUrl(t.provider, p.url); log(s, t, 'Link conversation asli disimpan.'); break;
+      case 'retry_local': t.localError = null; t.localFailedMarker = null; log(s, t, 'User meminta retry penyimpanan file lokal.'); break;
+      case 'question':
+        if (['STOPPED','COMPLETED','PAUSED'].includes(t.status)) throw new Error('Task ini tidak aktif.');
+        t.question = bounded(p.text, 4000); t.beforeQuestion = t.status; t.status = 'WAITING_FOR_USER'; log(s, t, t.question); break;
+      case 'answer':
+        if (!t.question || t.status !== 'WAITING_FOR_USER' || s.emergency) throw new Error('Tidak ada pertanyaan aktif.');
+        log(s, t, bounded(p.text), 'user'); t.question = null; t.status = t.beforeQuestion || 'WAITING_FOR_OPERATOR'; break;
+      case 'result': {
+        if (s.emergency || !['AI_WORKING','WAITING_FOR_USER','WAITING_FOR_OPERATOR'].includes(t.status) || t.approvedRevision !== t.revision) throw new Error('Hasil memerlukan task aktif dan approval yang sesuai.');
+        requireOperatorSettings(t);
+        const flag = bounded(p.flag, 512).trim(); if (!flag || /[\r\n]/.test(flag)) throw new Error('Flag harus satu baris dan tidak kosong.');
+        if (t.provider !== 'claude') throw new Error('Hasil workflow ini wajib dari Claude desktop.');
+        const chatUrl = validSessionUrl('claude', p.chatUrl);
+        if (typeof p.solverRequired !== 'boolean') throw new Error('Nyatakan apakah solver diperlukan.');
+        const solverFiles = p.solverFiles || [];
+        if (!Array.isArray(solverFiles) || solverFiles.length > 10 || (p.solverRequired && !solverFiles.length) || (!p.solverRequired && solverFiles.length)) throw new Error('File solver wajib jika diperlukan; jangan sertakan jika tidak diperlukan.');
+        if (!['candidate','verified-output'].includes(p.validation || 'candidate')) throw new Error('Status validasi tidak didukung; jangan klaim scoreboard tanpa bukti.');
+        t.sessionUrl = chatUrl; t.candidateFlag = flag;
+        t.result = { flag, chatUrl, solverRequired: p.solverRequired, solverFiles, validation: p.validation || 'candidate', model: 'Sonnet 5', thinking: 'off', at: new Date().toISOString() };
+        t.pending = null; t.followups = []; t.question = null; t.status = 'COMPLETED'; log(s, t, 'Hasil tersedia: flag, link AI, dan solver bila diperlukan.'); break;
+      }
       case 'edit':
         if (!['WAITING_FOR_APPROVAL', 'WAITING_FOR_USER'].includes(t.status) || t.pending) throw new Error('Edit hanya saat review tanpa operasi aktif.');
-        t.prompt = bounded(p.text); t.revision++; t.approvedRevision = null; t.status = 'WAITING_FOR_APPROVAL'; log(s, t, 'Prompt diedit. Perlu approval versi baru.'); break;
+        t.prompt = bounded(p.text); revise(t); t.status = 'WAITING_FOR_APPROVAL'; log(s, t, 'Prompt diedit. Perlu approval versi baru.'); break;
       case 'approve':
-        if (s.emergency || t.status !== 'WAITING_FOR_APPROVAL' || p.revision !== t.revision) throw new Error('Approval kedaluwarsa atau task tidak siap.');
+        if (s.emergency || t.transcriptionRequired || t.status !== 'WAITING_FOR_APPROVAL' || p.revision !== t.revision) throw new Error('Approval kedaluwarsa atau task tidak siap.');
         t.approvedRevision = t.revision; t.pending = { id: c.id, text: t.prompt, kind: 'initial', stage: 'queued' }; t.status = 'SUBMITTING_PROMPT'; log(s, t, 'Versi prompt disetujui user.'); break;
       case 'reject':
         if (t.status !== 'WAITING_FOR_APPROVAL') throw new Error('Tidak ada prompt menunggu approval.');
@@ -61,10 +107,10 @@ export function applyCommand(s, c) {
       case 'stop': t.status = 'STOPPED'; t.pending = null; t.followups = []; log(s, t, 'Task dihentikan. Follow-up yang belum dikirim dibatalkan.'); break;
       case 'retry':
         if (!['FAILED', 'RATE_LIMITED', 'STOPPED'].includes(t.status)) throw new Error('Retry hanya untuk task gagal, limit atau dihentikan.');
-        t.pending = null; t.revision++; t.approvedRevision = null; t.status = 'WAITING_FOR_APPROVAL'; log(s, t, 'Retry memerlukan review ulang untuk menghindari pengiriman ganda.'); break;
+        t.pending = null; revise(t); t.status = 'WAITING_FOR_APPROVAL'; log(s, t, 'Retry memerlukan review ulang untuk menghindari pengiriman ganda.'); break;
       case 'switch': {
         if (!providers.some(x => x.id === p.provider) || t.pending || ['AI_WORKING','SUBMITTING_PROMPT'].includes(t.status)) throw new Error('Selesaikan/hentikan operasi sebelum pindah provider.');
-        t.provider = p.provider; t.profile = bounded(p.profile || 'default', 80); t.sessionUrl = null; t.revision++; t.approvedRevision = null;
+        t.provider = p.provider; t.profile = bounded(p.profile || 'default', 80); t.sessionUrl = null; revise(t);
         t.prompt = generatePrompt(t) + '\n\n## Context handoff (data)\n' + t.messages.map(m => `${m.role}: ${m.text}`).join('\n').slice(-24000);
         t.status = 'WAITING_FOR_APPROVAL'; log(s, t, 'Provider/profile dipilih manual. Context handoff perlu approval.'); break;
       }
@@ -74,6 +120,7 @@ export function applyCommand(s, c) {
         recordResponse(s, t, bounded(p.text)); break;
       case 'complete':
         if (t.pending || !['WAITING_FOR_USER', 'COMPLETED'].includes(t.status)) throw new Error('Selesaikan operasi aktif dulu.');
+        if (t.provider === 'claude' && !t.result) throw new Error('Lengkapi flag, link chat AI, dan solver bila diperlukan lewat Kirim hasil.');
         t.status = 'COMPLETED'; log(s, t, 'User menandai challenge selesai. Flag tidak disubmit otomatis.'); break;
       case 'artifact':
         if (!Array.isArray(p.files) || !p.files.length || p.files.length > 10) throw new Error('Metadata artefak tidak valid.');
@@ -82,7 +129,7 @@ export function applyCommand(s, c) {
         if (t.pending || !['WAITING_FOR_APPROVAL','WAITING_FOR_USER','COMPLETED'].includes(t.status)) throw new Error('Tambahkan file setelah operasi aktif selesai/dihentikan dan direview ulang.');
         if (!Array.isArray(p.files) || !p.files.length || t.files.length + p.files.length > 10) throw new Error('Maksimal 10 attachment per challenge.');
         if (p.text) log(s, t, bounded(p.text), 'user');
-        t.files.push(...p.files); t.revision++; t.approvedRevision = null;
+        t.files.push(...p.files); revise(t);
         t.prompt = generatePrompt(t) + '\n\n## Context handoff (data)\n' + t.messages.map(m => `${m.role}: ${m.text}`).join('\n').slice(-24000);
         t.status = 'WAITING_FOR_APPROVAL'; log(s, t, 'File tambahan diterima. Prompt baru perlu approval.'); break;
       case 'report_limit': {
@@ -107,6 +154,10 @@ export function validSessionUrl(provider, value) {
   const patterns = { chatgpt: /^\/c\/[\w-]+$/, claude: /^\/chat\/[\w-]+$/, gemini: /^\/app\/[\w-]+$/ };
   if (!patterns[provider].test(u.pathname)) throw new Error('Gunakan URL conversation, bukan halaman login/beranda.');
   return u.href;
+}
+export function requireOperatorSettings(t) {
+  const settings = t.operatorSettings;
+  if (!settings || settings.revision !== t.revision || settings.model !== 'Sonnet 5' || settings.thinking !== 'off' || !settings.freeTier || Date.now() - settings.observedAt > 600000) throw new Error('Cek ulang Sonnet 5 / Thinking OFF / Free di UI, lalu catat settings (berlaku 10 menit untuk revisi ini).');
 }
 export function recordResponse(s, t, text) {
   log(s, t, text, 'provider');

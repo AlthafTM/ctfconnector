@@ -6,10 +6,11 @@ import { GitHubRelay } from '../web/relay.mjs';
 import { keyFromSecret, seal, open } from '../web/crypto.mjs';
 import { initialState, applyCommand, log, recordResponse } from './core.mjs';
 import { BrowserManager } from './browser.mjs';
+import { materializeTask, saveResult, workspaceMarker } from './workspace.mjs';
 export class Worker {
   constructor(relay, cfg, browser, dataDir = localDir) {
     this.relay = relay; this.cfg = cfg; this.browser = browser; this.dir = dataDir;
-    this.owner = crypto.randomUUID(); this.active = new Map(); this.chain = Promise.resolve(); this.running = true; this.ready = false;
+    this.owner = crypto.randomUUID(); this.active = new Map(); this.localWork = new Map(); this.chain = Promise.resolve(); this.running = true; this.ready = false;
   }
   transaction(fn) { const p = this.chain.then(fn); this.chain = p.catch(() => {}); return p; }
   async save() {
@@ -34,13 +35,14 @@ export class Worker {
       if ((remote?.value.sequence || 0) > (this.state.sequence || 0)) this.state = remote.value;
     }
     catch (e) { if (e.code !== 'ENOENT') throw new Error('Local state gagal dibaca. Jangan reset key/state; periksa pairing key.'); this.state = remote?.value || initialState(); }
-    for (const t of Object.values(this.state.tasks)) if (t.pending && t.pending.stage !== 'queued') {
+    for (const t of Object.values(this.state.tasks)) if (t.pending && !['queued','operator'].includes(t.pending.stage)) {
       t.pending = null; t.status = 'WAITING_FOR_USER'; log(this.state, t, 'Worker restart saat pengiriman. Periksa conversation dan impor respons; tidak dikirim ulang otomatis.');
     }
     for (const p of this.state.providers) {
       const profiles = Object.values(this.cfg.profiles).filter(x => x.provider === p.id);
       p.profiles = profiles.map(x => ({ profile: x.profile, model: x.model || p.requestedModel, mode: x.mode, freeTierVerified: !!x.freeTierVerified }));
       p.status = 'UNVERIFIED'; p.remaining = 'Unknown';
+      if (p.id === 'claude' && profiles.some(x => x.mode === 'operator')) { p.status = 'OPERATOR_REQUIRED'; p.verification = 'ACCOUNT_UI_RECHECK_REQUIRED'; }
     }
     await this.save(); await this.publish(); this.ready = true;
   }
@@ -56,7 +58,7 @@ export class Worker {
         const next = structuredClone(this.state);
         try { applyCommand(next, c); this.state = next; }
         catch (e) { this.state.processed[c.id] = { status: 'rejected', error: e.message, at: new Date().toISOString() }; log(this.state, null, `Command ${c.type} ditolak: ${e.message}`); }
-        if (['pause', 'stop', 'emergency', 'report_limit'].includes(c.type)) for (const [id, active] of this.active) {
+        if (this.state.processed[c.id]?.status === 'ok' && ['pause', 'stop', 'emergency', 'report_limit'].includes(c.type)) for (const [id, active] of this.active) {
           const task = this.state.tasks[c.taskId];
           if (c.type === 'emergency' || id === c.taskId || (c.type === 'report_limit' && active.profile === `${task.provider}:${task.profile}`)) active.controller.abort();
         }
@@ -69,6 +71,7 @@ export class Worker {
     if (this.state.emergency || Date.now() - this.leaseAt > 120000) return;
     for (const t of Object.values(this.state.tasks)) {
       if (!t.pending || t.pending.stage !== 'queued' || t.status !== 'SUBMITTING_PROMPT' || this.active.has(t.id)) continue;
+      if (this.cfg.workspaceRoot && (t.localRevision !== t.revision || t.localError)) continue;
       // Browser profiles are serialized; independent profiles can keep working.
       if ([...this.active.values()].some(a => a.profile === `${t.provider}:${t.profile}`)) continue;
       const controller = new AbortController();
@@ -81,6 +84,13 @@ export class Worker {
     const current = () => { const t = this.state.tasks[id]; if (signal.aborted || !t?.pending || t.pending.id !== operationId || this.state.emergency || Date.now() - this.leaseAt > 120000) throw new Error('Operasi dibatalkan.'); return t; };
     try {
       const t = current(), profile = this.cfg.profiles[`${t.provider}:${t.profile}`];
+      if (profile?.mode === 'operator' && t.provider === 'claude') {
+        await this.transaction(async () => {
+          const task = current(); task.pending.stage = 'operator'; task.status = 'WAITING_FOR_OPERATOR';
+          log(this.state, task, 'Prompt disetujui. Menunggu operator Codex mengambil task untuk Claude desktop Sonnet 5, Thinking OFF.');
+          await this.save(); await this.publish();
+        }); return;
+      }
       if (!profile || profile.mode !== 'automated' || !profile.freeTierVerified || !profile.verificationEvidence || !profile.automationPermissionEvidence) {
         await this.transaction(async () => {
           const task = current(); task.pending.stage = 'manual'; task.status = 'WAITING_FOR_USER';
@@ -141,13 +151,39 @@ export class Worker {
     }
     commands.sort((a, b) => (a.value.type === 'emergency' ? -1 : b.value.type === 'emergency' ? 1 : (a.value.at || '').localeCompare(b.value.at || '')));
     for (const c of commands) { await this.process(c.value); await this.relay.remove(c.path, c.sha); }
+    this.syncWorkspace();
     if (Date.now() - this.publishedAt > 60000) await this.transaction(() => this.publish());
     this.dispatch();
+  }
+  syncWorkspace() {
+    if (!this.cfg.workspaceRoot) return;
+    for (const task of Object.values(this.state.tasks)) {
+      if (this.localWork.size >= 2) break;
+      const marker = workspaceMarker(task);
+      if (this.localWork.has(task.id) || task.localFailedMarker === marker || (task.localMarker === marker && (!task.result || task.localResultAt === task.result.at))) continue;
+      const snapshot = structuredClone(task);
+      const job = (async () => {
+        await materializeTask(this.cfg.workspaceRoot, snapshot, this.relay);
+        if (snapshot.result && snapshot.localResultAt !== snapshot.result.at) await saveResult(this.cfg.workspaceRoot, snapshot, this.relay);
+        await this.transaction(async () => {
+          const current = this.state.tasks[snapshot.id];
+          if (current.revision === snapshot.revision) { current.localRevision = snapshot.revision; current.localReady = true; current.localError = null; current.localMarker = marker; }
+          if (current.result?.at === snapshot.result?.at && snapshot.result) current.localResultAt = snapshot.result.at;
+          await this.save(); await this.publish();
+        });
+      })().catch(e => this.transaction(async () => {
+        const current = this.state.tasks[snapshot.id];
+        if (current.localError !== e.message) log(this.state, current, `Folder lokal: ${e.message}. Gunakan Retry file lokal setelah penyebabnya ditangani.`);
+        current.localError = e.message; current.localFailedMarker = workspaceMarker(current); await this.save(); await this.publish();
+      })).catch(e => console.error('Local workspace:', e.message)).finally(() => this.localWork.delete(task.id));
+      this.localWork.set(task.id, job);
+    }
   }
   async stop() {
     this.running = false;
     const operations = [...this.active.values()]; for (const a of operations) a.controller.abort(); this.browser.close();
     await Promise.allSettled(operations.map(a => a.promise).filter(Boolean));
+    await Promise.allSettled([...this.localWork.values()]);
   }
 }
 async function main() {

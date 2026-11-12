@@ -1,31 +1,42 @@
 # CTF Connector
 
-Dashboard HP untuk mengoordinasikan challenge CTF dengan worker Windows. Orchestrator berbasis aturan menyiapkan prompt Indonesia, meminta approval, menyimpan context setiap challenge, dan meneruskan hasil provider. Orchestrator **tidak memecahkan challenge atau menjalankan perintah solver**.
+[Website](https://althaftm.github.io/ctfconnector/) untuk mengirim soal dari HP, review prompt, menjawab pertanyaan, dan menerima **flag + link chat AI + solver jika diperlukan**.
 
-- Dashboard: https://althaftm.github.io/ctfconnector/
-- Source: https://github.com/AlthafTM/ctfconnector
-- Relay: repo GitHub **privat** terpisah, dibuat oleh setup. Tidak membutuhkan akun Firebase/Supabase atau kartu pembayaran.
+Codex menjadi prompt maker/operator. Solver yang diminta: **Claude desktop, Sonnet 5 tepat, akun Free, Thinking OFF**. Tidak mengganti ke Sonnet 5.5 atau mengaktifkan thinking.
 
-## Arsitektur yang dipakai
+## Pakai dari HP
+
+1. Login dengan repo relay privat, fine-grained GitHub token (Contents read/write untuk relay saja), dan pairing key.
+2. Tekan **Soal baru**. Kirim teks atau foto; nama soal boleh kosong.
+3. Foto disalin operator menjadi teks terlebih dahulu. Review dan setujui prompt lewat website.
+4. Operator menjalankan workflow Claude, browser CTF, tool/WSL atau VM yang tersedia dalam scope. Pertanyaan dikirim ke website.
+5. Hasil ringkas tampil di bagian atas soal. File solver hanya muncul jika diperlukan.
+
+Detail provider, log dan kontrol lain dilipat supaya layar HP tidak penuh teks. Tombol Prompt untuk AI prompt maker menyediakan instruksi siap salin. Versi berkas: [PROMPT_MAKER.md](docs/PROMPT_MAKER.md). [PROMPT MASTER asli](docs/PROMPT_MASTER_ORIGINAL.md) tetap utuh dan diuji hash-nya.
+
+## File lokal per soal
+
+Default PC ini: `C:/Additional/CTF/local/<task-uuid>/`.
 
 ```text
-HP / GitHub Pages -- HTTPS GitHub REST --> private encrypted relay
-                                                ^
-                                                | outbound HTTPS
-                                           Windows worker
-                                                |
-                                    visible browser / manual handoff
-                                                |
-                                       external free-tier AI
+input/                       file/foto asli, tidak ditimpa
+challenge.json               task, approval, pesan, session dan status
+challenge.txt                teks soal / transkripsi
+prompt-maker.md              instruksi untuk Codex
+prompt-draft.txt
+approved-prompt-r<N>.txt      hanya ditulis untuk revisi disetujui
+screenshots/                 screenshot relevan jika diminta AI
+solver/                      hanya dibuat bila hasil memerlukan solver
+flag.txt
+chat-url.txt
+result.json
 ```
 
-Repo publik hanya berisi kode dashboard/worker. Relay menyimpan command, snapshot task, lease worker, serta chunk file dalam envelope AES-256-GCM. AAD mengikat ciphertext pada repo dan path; key 256-bit acak hanya dibagikan ke perangkat sendiri. GitHub masih melihat metadata path, ukuran dan waktu aktivitas. Payload terenkripsi juga tetap berada di riwayat Git.
-
-Dashboard polling setiap 10 detik (30 detik jika tab di background). Worker polling setiap 10 detik dan heartbeat setiap 60 detik. Ini **near-real-time polling, bukan WebSocket**. Jeda aktual tergantung GitHub, internet, antrean dan batas API. Emergency stop jarak jauh juga memerlukan koneksi, bukan tombol pemutus PC yang offline.
+Foto asli tetap lokal/terenkripsi di relay. Sampaikan soal ke AI sebagai teks. Screenshot hanya bila AI memerlukan bukti visual, potong ke bagian relevan, dan simpan di `screenshots/`. Artefak lokal tidak masuk Git source.
 
 ## Instalasi dan start di Windows
 
-Butuh Node.js 22+ dari situs resmi, Git for Windows, serta Edge/Chrome untuk profile browser opsional. Tidak ada dependency npm untuk runtime.
+Butuh Node.js 22+, Git for Windows yang sudah login atau `CTF_GITHUB_TOKEN` dari environment. Runtime tanpa dependency npm.
 
 ```powershell
 git clone https://github.com/AlthafTM/ctfconnector.git
@@ -35,103 +46,61 @@ node scripts/pair.mjs
 node agent/main.mjs
 ```
 
-Setup memakai `CTF_GITHUB_TOKEN` dari environment jika tersedia; jika tidak, Git Credential Manager yang sudah login. Token harus bisa membuat repo privat saat setup. Jika belum ada login Git, login Git Credential Manager terlebih dahulu. Untuk worker harian, gunakan fine-grained token khusus relay dengan repository Contents read/write; simpan dalam environment lokal atau credential manager, jangan dalam source. Setup tidak menulis token ke file.
+Setup membuat repo relay privat; tidak perlu Firebase/Supabase atau kartu pembayaran. Pairing key dilindungi Windows DPAPI dalam `.local/config.json`. Token tidak ditulis ke source. Di HP gunakan token khusus repo relay, bukan token global. Key/token hanya berada di memori tab; setelah refresh, login kembali untuk memuat riwayat.
 
-Pairing key disimpan di `.local/config.json` menggunakan Windows DPAPI untuk akun Windows saat ini. `scripts/pair.mjs` menampilkan key di terminal lokal. **Jangan tempel output key/token ke issue, chat publik atau laporan.** Backup `.local/config.json` bersama profil Windows/DPAPI secara aman: kehilangan key berarti payload relay tidak dapat didekripsi. Rotasi key belum otomatis.
+PC dan Codex harus menyala. Worker melakukan koneksi keluar HTTPS, tidak membuka endpoint publik. Worker background pada PC ini memakai PID dalam `.local/agent.pid` dan log `.local/agent.stdout.log` / `.local/agent.stderr.log`. Jangan start worker kedua. Setelah crash, pastikan proses lama benar-benar mati sebelum membersihkan lock kosong `.local/worker.lock`; lease cloud berlaku maksimal 180 detik.
 
-Di HP, buat [fine-grained GitHub token](https://github.com/settings/personal-access-tokens/new) yang hanya memilih repo relay, Contents read/write. Buka dashboard, masukkan `owner/ctfconnector-relay`, token, dan pairing key. Token dan key ada di memori tab; refresh/menutup tab meminta login ulang. Riwayat challenge diambil kembali setelah login. Keluar membersihkan tampilan dan key dari referensi aplikasi. GitHub token bukan model/API AI berbayar.
+## Operator Codex
 
-PC harus tetap menyala, tidak sleep, dan worker tetap berjalan di terminal. `Ctrl+C` menghentikan worker. Setelah crash, pastikan proses worker lama sudah mati sebelum menghapus `.local/worker.lock`; lease cloud bisa membutuhkan sampai 180 detik untuk habis. Jangan jalankan dua worker pada relay yang sama. Installer service/startup otomatis belum dipasang.
-
-Pada PC tempat implementasi ini dibuat, worker awal dijalankan sebagai proses background. PID tersimpan di `.local/agent.pid`; output ada di `.local/agent.stdout.log` dan `.local/agent.stderr.log`. Untuk menghentikan proses background itu, jalankan `Stop-Process -Id (Get-Content .local/agent.pid)` dari folder project. Pastikan PID masih menunjuk proses worker yang sama sebelum menghentikannya. Shutdown paksa dapat meninggalkan lock; tunggu lease habis dan pastikan proses mati sebelum membersihkan lock. Jangan start worker kedua selama proses ini masih aktif.
-
-## Alur kerja
-
-1. Tambah challenge, kategori, deskripsi, scope, format flag dan file. Maksimal 10 file per challenge, 20 MiB per file; format binary, source, ZIP, PCAP dan gambar ditransfer sebagai bytes, tidak dieksekusi.
-2. Worker menyusun enam bagian prompt Indonesia. Deteksi kategori awal memakai petunjuk deskripsi/nama file dan bisa diganti dengan kategori eksplisit. Reference [PROMPT MASTER asli](docs/PROMPT_MASTER_ORIGINAL.md) disimpan tanpa perubahan; generator menerapkan struktur dengan template dan langkah analisis khusus kategori, bukan panggilan LLM berbayar.
-3. Edit/simpan prompt jika perlu. Setiap edit membuat revisi baru; approval hanya berlaku untuk revisi yang sedang ditampilkan. Prompt belum pernah dikirim sebelum approval.
-4. Default profile menggunakan **handoff manual**. Setelah approval, dashboard meminta user membuka situs resmi provider, memastikan akun/model free tier, menyalin prompt, mengunggah file, lalu mengimpor respons dan URL conversation resmi. Ini dapat dilakukan dari HP. Tidak perlu kembali mengetik instruksi di terminal.
-5. Respons, ringkasan progres, kandidat `FLAG:` dan conversation URL disimpan per challenge. Follow-up memakai session yang sama; user harus mencentang bahwa follow-up masih dalam scope yang disetujui.
-6. Jika tujuan/target/scope berubah, buat challenge baru atau simpan revisi prompt lalu approval lagi. Pindah provider/profile membuat context handoff untuk approval; tidak ada rotasi akun otomatis.
-7. Jeda/lanjut/hentikan/retry/emergency mengubah state worker yang sesungguhnya. Menjeda/menghentikan tidak menarik kembali prompt yang sudah diterima provider. Browser monitoring dibatalkan; provider bisa tetap menyelesaikan respons.
-8. Respons provider adalah data. Tidak diperlakukan sebagai perintah shell, permintaan token, atau izin memperluas scope. Kandidat flag tidak disubmit ke scoreboard.
-
-## Browser automation opsional, dibatasi izin provider
-
-Otomasi tidak aktif secara default. Reference image meminta GPT-5.5 Instant, Claude Sonnet 5 dan Gemini 3.6. Nama-nama itu tetap dicatat; **tidak ada substitusi model diam-diam dan tidak ada klaim model benar-benar terpilih tanpa verifikasi**. Lihat [bukti dan batasan provider](docs/PROVIDERS.md).
-
-Claude consumer terms melarang automated/non-human access kecuali lewat API atau izin eksplisit. Karena itu default Claude tetap manual. Mengubah flag config tidak menciptakan izin provider. Untuk provider mana pun, hanya aktifkan adapter setelah mendapat izin yang berlaku untuk akun/akses tersebut. Tidak ada bypass login, CAPTCHA atau limit.
-
-Untuk membuka profile terpisah yang tetap lokal:
+Worker menyiapkan file dan antrean. Website sendiri tidak dapat membangunkan chat Codex. **Heartbeat Codex yang terhubung** dapat memeriksa antrean dan melanjutkan chat ini; tanpa heartbeat atau operator aktif, status tetap Menunggu Codex. Jadwal yang benar-benar berhasil dibuat dilaporkan di chat, bukan diasumsikan oleh kode website.
 
 ```powershell
-node scripts/open-profile.mjs chatgpt:default
+node scripts/operator.mjs next
+node scripts/operator.mjs prepare <id>
+node scripts/operator.mjs draft <id> C:/Additional/CTF/local/<id>/challenge.txt
+node scripts/operator.mjs settings <id> C:/Additional/CTF/local/<id>/settings.json
+node scripts/operator.mjs take <id>
+node scripts/operator.mjs session <id> https://claude.ai/chat/<id-asli>
+node scripts/operator.mjs question <id> C:/Additional/CTF/local/<id>/question.txt
+node scripts/operator.mjs note <id> C:/Additional/CTF/local/<id>/note.txt
+node scripts/operator.mjs result <id> C:/Additional/CTF/local/<id>/result.json
 ```
 
-Login dilakukan user di browser yang terlihat. Cookies/profile disimpan di `.local/profiles/`, tidak dikirim ke relay. Setiap profile/account mempunyai direktori terpisah. Untuk account tambahan, tambahkan key misalnya `claude:account2` dalam `.local/config.json`, dengan `provider: "claude"` dan `profile: "account2"`. Pilih profile secara eksplisit dari dashboard; patuhi aturan provider terkait account switch.
+CLI menunggu acknowledgement worker. Jangan mengulang pengiriman yang belum jelas hasilnya. Simpan URL conversation asli segera setelah terbentuk dan lanjutkan conversation yang sama per soal. Gunakan URL privat `/chat/...`; jangan membuat public share tanpa izin.
 
-Adapter visible-browser menggunakan CDP loopback. Setelah verifikasi, konfigurasi profile lokal harus berisi:
+`settings.json` mencatat observasi UI nyata sebelum mengirim: model `Sonnet 5`, thinking `off`, `freeTier: true`, dan `evidence`. Receipt berlaku 10 menit untuk revisi tersebut. Sonnet 5.5, thinking low/on, receipt kedaluwarsa dan hasil tanpa approval ditolak. Receipt adalah catatan operator, bukan pembacaan UI otomatis oleh worker.
+
+`result.json` minimal:
 
 ```json
 {
-  "provider": "chatgpt",
-  "profile": "default",
-  "mode": "automated",
-  "freeTierVerified": true,
-  "model": "NAMA MODEL YANG BENAR-BENAR TERVERIFIKASI",
-  "verificationEvidence": "sumber resmi + tanggal dan hasil cek akun free",
-  "automationPermissionEvidence": "izin provider yang berlaku untuk akses ini",
-  "editor": "CSS selector editor",
-  "submit": "CSS selector tombol submit",
-  "response": "CSS selector pesan assistant",
-  "busy": "CSS selector indikator generation aktif",
-  "limit": "CSS selector notifikasi limit",
-  "login": "CSS selector form login",
-  "modelSelector": "CSS selector nama model aktif",
-  "fileInput": "input[type=file]",
-  "uploadBusy": "CSS selector upload yang masih berjalan"
+  "flag": "FLAG_ASLI",
+  "chatUrl": "https://claude.ai/chat/ID_ASLI",
+  "solverRequired": false,
+  "validation": "candidate"
 }
 ```
 
-Jangan gunakan placeholder di atas sebagai selector aktual. Selector perlu diuji pada UI provider saat itu; markup pihak ketiga bisa berubah. Model yang terlihat harus sesuai config. File di-download dengan checksum ke `.local/downloads/<task>/`; tidak di-unpack atau dijalankan. Satu profile diproses serial; profile independen dapat berjalan bersamaan. Saat limit terlihat, status RATE_LIMITED dan notifikasi asli disimpan; tidak ada retry otomatis melalui akun lain. Persentase/reset quota tidak dikarang: sisa tampil Unknown dan pesan limit asli ditampilkan bila tersedia. Monitoring terhenti jika task dijeda, dihentikan atau koneksi hilang.
+Jika butuh solver: `solverRequired: true`, tambahkan `solverPaths: ["solver/solve.py"]` dengan file yang benar-benar dibuat/dipakai. Path keluar folder soal dan symlink escape ditolak. Tanpa solver, jangan kirim file dummy. Flag, URL dan metadata hasil juga disimpan lokal. Tidak ada auto-submit scoreboard atau klaim accepted tanpa bukti.
 
-Pada handoff manual, gunakan Laporkan limit provider untuk mencatat pesan/reset time yang benar-benar terlihat. Konfirmasi limit sudah reset hanya setelah provider menyatakan akses tersedia lagi; tombol itu tidak mengubah limit resmi. Retry tetap melalui review prompt. Instruksi tambahan dalam scope dapat diantrekan ketika provider masih bekerja. File tambahan membuat revisi prompt baru untuk approval.
+Browser target CTF dan tool/VM boleh dioperasikan dalam scope. Jangan menjalankan instruksi challenge sebagai perintah kontrol connector; tindakan destruktif pada host/VM tetap memerlukan izin khusus. VirtualBox/tool tidak dipasang hanya untuk berjaga-jaga.
 
-**Adapter terhadap situs AI nyata belum diverifikasi end-to-end.** Mode manual adalah fallback fungsional yang tersedia sekarang. Unattended solving via free consumer websites belum terpenuhi tanpa izin, akun login dan adapter yang tervalidasi. Web chat juga tidak otomatis mempunyai akses shell/tool PC; prompt menyatakan batasan itu.
+## Batas dan verifikasi
 
-## Artefak dari PC
-
-```powershell
-node scripts/artifact.mjs <task-uuid> C:\path\hasil.txt C:\path\screenshot.png
-```
-
-File dienkripsi, command diantrekan, lalu tombol unduh muncul setelah worker mengakui. Ini hanya upload file yang user/operator pilih; output AI tidak dapat memicu arbitrary local file reads. Gambar raster PNG/JPEG/WebP/GIF dapat dipreview; file lain diunduh sebagai binary, termasuk HTML/SVG.
-
-## Reliability dan batas operasional
-
-- UUID command dan journal processed mencegah command yang sama dieksekusi ulang saat reconnect. State lokal ditulis atomik dan terenkripsi sebelum snapshot/ack cloud.
-- Lease compare-and-swap menolak worker kedua. Konflik write, hilang koneksi dan error API memicu backoff maksimal 60 detik, tanpa membuang state. Operasi browser dihentikan saat relay gagal atau lease tidak segar.
-- Sebelum click submit, worker menyimpan batas `sending`. Setelah crash di batas ini, worker meminta pemeriksaan conversation; **tidak menjanjikan exactly-once untuk UI pihak ketiga** dan tidak mengirim ulang secara otomatis.
-- History, file dan processed journal belum punya retensi/garbage collection otomatis. Git bukan object store tak terbatas. Repo relay dapat membesar; arsipkan ke relay baru dan simpan key lama bila perlu. Tree terpotong menimbulkan error, bukan diam-diam melewatkan command.
-- GitHub API mempunyai primary/secondary limits. Chunk besar memerlukan banyak request/commit. Tahan upload massal, jangan polling lebih agresif tanpa menghitung limit. Tidak cocok untuk trafik banyak user atau file besar.
-- Isolasi user memakai private repository ACL + pairing key terpisah per deployment. Ini deployment satu pemilik, bukan multi-tenant RBAC. Orang yang diberi token write dan key mempunyai kontrol atas relay tersebut.
-- Jangan ubah relay menjadi public. Aplikasi memeriksa visibility saat koneksi/poll dan menolak public repo; enkripsi tetap membatasi pembacaan riwayat jika visibility tak sengaja berubah. Cabut token jika HP/key hilang.
-- Remote UI merender challenge/AI sebagai teks, tidak HTML. CSP hanya mengizinkan script lokal dan koneksi GitHub API; token tidak dimasukkan ke URL, source atau log aplikasi.
-- Tidak ada arbitrary shell command endpoint. Windows local admin/software lain tetap berada di luar trust boundary. CDP port terikat loopback dan hanya dipakai profile khusus.
-
-## Test dan deployment
+- Relay GitHub privat menyimpan payload AES-256-GCM; polling sekitar 10 detik. Heartbeat operator mempunyai jadwal terpisah, bukan WebSocket atau respons instan.
+- Maksimal 10 file, masing-masing 20 MiB. GitHub API/ukuran repo mempunyai batas. History dan ciphertext lama belum dibersihkan otomatis.
+- Pause/stop membatalkan operasi yang dikelola worker; prompt yang sudah diterima provider tidak dapat ditarik kembali. Pengiriman yang hasilnya tidak pasti tidak diulang otomatis.
+- Sisa quota Unknown jika tidak terukur. Tidak ada rotasi akun otomatis.
+- Claude desktop Free, Sonnet 5 dan toggle Thinking OFF sudah diamati/dikonfigurasi di PC pada 12 November 2026. **Belum ada soal CTF nyata yang dikirim atau diselesaikan sebagai uji end-to-end.**
+- Adapter CDP generik tetap tidak aktif secara default. Patuhi izin akses provider; tidak ada bypass login, CAPTCHA atau rate limit. Lihat [catatan provider](docs/PROVIDERS.md).
 
 ```powershell
-node --test tests/core.test.mjs tests/relay.test.mjs tests/worker.test.mjs
-node scripts/preview.mjs
-```
-
-Preview lokal: http://127.0.0.1:4173. Fixture UI **khusus pengujian**, tanpa GitHub/provider nyata:
-
-```powershell
+node --test tests/*.test.mjs
 node scripts/qa-server.mjs
+node scripts/check-running-agent.mjs
+node scripts/verify-deployment.mjs
 ```
 
-Fixture: http://127.0.0.1:4174, repo `test/private`, token `test-only`, key `AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`. Fixture server **tidak** masuk artefak GitHub Pages. Untuk uji relay privat nyata, hentikan worker terlebih dahulu lalu jalankan `node scripts/live-check.mjs`; script menambah satu task yang jelas ditandai TEST, tanpa mengontak AI.
+QA server lokal khusus fixture: `http://127.0.0.1:4174`, repo `test/private`, token `test-only`, key `AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`. Fixture tidak masuk Pages. Hasil DEMO dan URL fixture bukan hasil AI. [Verifikasi](docs/VERIFICATION.md) · [Gate UI](docs/UI_QA.md).
 
-Workflow `.github/workflows/pages.yml` menjalankan test Node.js, mengunggah folder `web/` saja, lalu deploy GitHub Pages menggunakan OIDC. Repository Settings > Pages harus Source: GitHub Actions. Tidak ada secret build. Lihat [hasil verifikasi](docs/VERIFICATION.md) untuk pengujian yang benar-benar dijalankan dan yang belum.
+Workflow GitHub Actions menguji lalu deploy folder `web/` saja. Tidak ada credential atau folder task lokal dalam artefak Pages.

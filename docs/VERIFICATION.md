@@ -6,7 +6,7 @@ Date: 12 November 2026. This record distinguishes local fixtures, the real relay
 
 `node --test tests/*.test.mjs` exercises:
 
-The final local run passed 18 tests with zero failures.
+The initial release passed 18 tests. The minimal desktop-operator revision passes 28 tests, including photo transcription gates, exact Sonnet 5/no-thinking receipts, conditional solver results and local packet integrity.
 
 - Indonesian six-section prompt and no dispatch before approval.
 - Edited prompt exact text, revision mismatch rejection, rejected prompt and replay deduplication.
@@ -34,9 +34,9 @@ Test response `DEMO{connector_transport_only}` is a **fixture**, not a flag foun
 
 ## Provider boundary
 
-No ChatGPT/Claude/Gemini login, model selection, actual provider file upload, actual provider quota detection or real provider response extraction was verified. The visible-browser CDP adapter exists but requires local selectors, verified free-tier/model access and provider automation permission. Default profiles remain manual and UNVERIFIED. Consumer Claude automated access is restricted by its terms. The shipped fallback is review/copy/open/import using the official provider UI.
+Claude desktop was inspected on the existing signed-in Free session. Sonnet 5 was selected from More models and Thinking was switched OFF; both were visually observed. No CTF prompt, provider attachment, real solver response or quota-limit event was tested. Claude now uses a desktop-operator queue; its legacy browser adapter is explicitly blocked. Per-task model receipts are operator attestations, not a hidden UI-reading service. Provider restrictions still apply.
 
-The unattended remote browser-solving part of the original definition of done remains blocked on those external requirements. Do not describe the whole project as end-to-end autonomous solving.
+Do not describe the project as a verified end-to-end autonomous solver. Worker/website queue tests, UI model configuration and an actual completed CTF solve are different evidence. A scheduled Codex heartbeat, if successfully enabled, supplies wake-ups; it does not prove a challenge was solved or override service restrictions.
 
 ## Deployment and UI
 
@@ -48,4 +48,4 @@ The first GitHub Pages deployment completed successfully in [workflow 4315791857
 
 The authenticated browser-to-real-GitHub flow was not exercised with a phone token: real relay integration and browser fixture checks are separate evidence. A real phone login still requires the owner's fine-grained token and pairing key. The user must verify actual provider sessions/model/free-tier permission before enabling browser automation.
 
-See [UI delivery gate](UI_QA.md) for the scoped interface review. These checks do not certify the provider integration or satisfy the unattended-solver requirement.
+The minimal revision additionally passed browser fixture checks for photo-only input, transcription before approval, structured flag/chat result, optional/required solver upload, downloaded solver fixture, and prompt-maker copy verified by pasting into a field. Fixture flags/URLs and the solver-fixture.py file are test data, not actual CTF results. The final chat records the actual deployment and heartbeat outcome. See [UI delivery gate](UI_QA.md).

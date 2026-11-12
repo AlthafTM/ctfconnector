@@ -39,11 +39,11 @@ Scope: dashboard interface, local Worker/relay protocol fixture and visual desig
 
 ## Liveliness and quality locks
 
-- Dials PASS: ENERGY 1 / RHYTHM 2 / MOTION 1 are recorded in DESIGN.md and match the quiet operations interface.
+- Dials PASS: ENERGY 1 / RHYTHM 1 / MOTION 1 are recorded in DESIGN.md and match the minimal functional interface.
 - Focal point PASS: prompt approval has the prominent accent/document treatment; mobile puts challenge content before provider detail.
 - Whitespace PASS: navigation, authorization, response handoff and chat have distinct spacing and boundaries.
 - Accent PASS: pale citron marks authorization and primary actions, with flat neutral supporting panels.
-- Identity PASS: the slash wordmark repeats the task/provider/profile hierarchy without an invented pictorial brand asset.
+- Identity PASS: a plain product title, task navigation and result-first content serve this workflow without an invented brand asset.
 - Design read PASS: DESIGN.md states audience, mobile operations purpose, visual language and dials.
 - C-1 PASS: one-line decisions for color, layout, typography, spacing, panels and movement are in DESIGN.md.
 - C-2 PASS: visible controls have real command/dialog/copy/file behavior, with disabled states for unavailable operations.
@@ -59,3 +59,7 @@ Scope: dashboard interface, local Worker/relay protocol fixture and visual desig
 - R-29 PASS: neutral/olive base, citron action accent, restrained warning text.
 - R-30 PASS: no branded clone layout or borrowed pictorial identity.
 - R-31 PASS: major visual decisions have explicit reasons in DESIGN.md.
+
+## Native operator revision
+
+Photo-only transcription gate, approval, model receipt, question/answer, no-solver result and optional solver upload passed in the local protocol fixture. Prompt-maker copy/paste passed. No overflow at 320, 390, 768 and 1440 px; browser console errors: none. All DEMO flags and fixture chat links are test data. No actual CTF was submitted to Claude.

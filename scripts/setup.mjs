@@ -30,6 +30,7 @@ const profiles = Object.fromEntries(['chatgpt', 'claude', 'gemini'].map(id => [i
   provider: id, profile: 'default', mode: 'manual', freeTierVerified: false, model: '', verificationEvidence: '',
   automationPermissionEvidence: '', editor: '', submit: '', response: '', busy: '', limit: '', login: '', modelSelector: ''
 }]));
+profiles['claude:default'].mode = 'operator'; profiles['claude:default'].model = 'Sonnet 5'; profiles['claude:default'].thinking = 'off';
 saveConfig({ repo: info.full_name, protectedKey: process.platform === 'win32' ? protect(secret) : undefined,
-  browserExecutable: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', pollMs: 10000, profiles });
+  browserExecutable: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', pollMs: 10000, workspaceRoot: resolve(process.cwd(), '..', 'local'), profiles });
 console.log(`Relay private siap: ${info.full_name}. Key disimpan dengan Windows DPAPI.\nJalankan node scripts/pair.mjs secara lokal, lalu node agent/main.mjs. Tidak ada token yang disimpan di repo.`);

@@ -48,6 +48,7 @@ export class BrowserManager {
     return cdp.call('Target.createTarget', { url: providers.find(p => p.id === profile.provider).url });
   }
   async submit(task, profile, files, signal, checkpoint) {
+    if (task.provider === 'claude') throw new Error('Claude wajib lewat operator aplikasi desktop: Sonnet 5, Thinking OFF. Adapter browser Claude dinonaktifkan.');
     if (profile.mode !== 'automated' || !profile.freeTierVerified || !profile.verificationEvidence || !profile.model || !profile.automationPermissionEvidence) throw new Error('Perlu verifikasi free tier, model dan izin automation di config lokal.');
     if (!profile.editor || !profile.submit || !profile.response || !profile.busy || !profile.limit || !profile.login || !profile.modelSelector) throw new Error('Selector editor/submit/response/busy/limit/login/modelSelector wajib dikonfigurasi.');
     const cdp = await this.connection(profile);
