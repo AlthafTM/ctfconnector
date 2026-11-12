@@ -8,6 +8,29 @@ const tools = {
   osint: 'Gunakan pencarian sumber publik, verifikasi silang dan metadata.',
   misc: 'Cek format input dulu, lalu pilih Python, nc, scapy atau tool yang relevan.'
 };
+const analysis = {
+  pwn: ['Periksa arsitektur, mitigasi binary, input dan perilaku crash sebelum memilih primitive.', 'Buktikan primitive memory corruption yang ada, lalu susun exploit minimum; jangan menebak offset atau alamat.'],
+  rev: ['Cari entry point, parser input dan jalur validasi pada static analysis; jalankan debugger hanya jika aman dan tersedia.', 'Turunkan transformasi/constraint dari validator dan uji pembalikannya pada input kecil sebelum membuat solver.'],
+  web: ['Petakan route, alur auth, input dan source yang diberikan; simpan request/response baseline.', 'Uji satu dugaan trust-boundary dengan request pembanding yang terkontrol; pilih payload berdasarkan bukti respons atau source.'],
+  crypto: ['Inventarisasi algoritma, parameter, nonce, modulus dan hubungan antar-input/output; cek asumsi matematisnya.', 'Uji kelemahan spesifik seperti nonce reuse atau relasi parameter dengan contoh kecil; jangan brute force keyspace tanpa estimasi yang masuk akal.'],
+  forensics: ['Identifikasi format asli, metadata, struktur dan timeline artefak tanpa mengubah file asli.', 'Telusuri indikator relevan dengan offset/filter yang tercatat; cocokkan hasil carving atau ekstraksi dengan bukti sumber.'],
+  stego: ['Periksa format, metadata, embedded payload dan perubahan channel/palet sebelum memilih teknik ekstraksi.', 'Uji hipotesis channel/bit-plane atau password dengan indikator yang terukur; validasi bytes hasil ekstraksi terhadap format yang masuk akal.'],
+  osint: ['Pisahkan petunjuk lokasi, waktu, identitas dan metadata; susun pencarian sumber publik yang spesifik.', 'Verifikasi kandidat dengan sumber independen dan catat URL/tanggal bukti; jangan menyamakan kemiripan dengan identifikasi pasti.'],
+  misc: ['Identifikasi format, encoding, protokol atau constraint dari contoh input/output paling kecil.', 'Pilih decode atau model constraint yang didukung bukti dan uji prediksinya sebelum memperluas pencarian.']
+};
+export function inferCategory(description, files = []) {
+  const text = `${description} ${files.map(f => f.name).join(' ')}`.toLowerCase();
+  const checks = [
+    ['pwn', /buffer overflow|ret2libc|format string|heap exploit|checksec|rop chain/],
+    ['crypto', /\brsa\b|\baes\b|elliptic|ciphertext|nonce|modulus|cryptograph/],
+    ['forensics', /\.pcap\b|memory dump|disk image|volatility|wireshark|forensic/],
+    ['stego', /steganograph|stegano|\blsb\b|steghide|zsteg/],
+    ['web', /https?:\/\/|\bsqli\b|\bxss\b|\bssti\b|web app|web challenge|\bjwt\b/],
+    ['osint', /\bosint\b|geolocat|reverse image|find (the )?location/],
+    ['rev', /reverse engineer|decompil|\.exe\b|\.wasm\b|\.apk\b|validator|ghidra/]
+  ];
+  return checks.find(([, pattern]) => pattern.test(text))?.[0] || 'misc';
+}
 export function generatePrompt(t) {
   const category = Object.hasOwn(tools, t.category) ? t.category : 'misc';
   return `--- GENERATED PROMPT FOR AGENTIC AI ---
@@ -32,8 +55,8 @@ Cek tool yang benar-benar tersedia. Jangan install semuanya tanpa alasan.
 
 ## 4. Methodology / Step-by-Step Plan
 1. Inventarisasi input, format file, target dan batas scope.
-2. Analisis bukti awal dengan eksperimen paling murah yang bisa menguji hipotesis.
-3. Pilih hipotesis spesifik sesuai kategori, lalu tunjukkan bukti pendukungnya.
+2. ${analysis[category][0]}
+3. ${analysis[category][1]}
 4. Buat exploit/decode hanya untuk target yang disetujui. Catat perintah dan hasil yang benar-benar diperoleh.
 5. Verifikasi kandidat flag terhadap hasil decode/exploit. Kandidat belum berarti diterima scoreboard.
 6. Kalau dua percobaan gagal dengan hasil sama tanpa bukti baru, evaluasi penyebab dan ganti pendekatan yang didukung bukti.

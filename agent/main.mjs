@@ -56,7 +56,10 @@ export class Worker {
         const next = structuredClone(this.state);
         try { applyCommand(next, c); this.state = next; }
         catch (e) { this.state.processed[c.id] = { status: 'rejected', error: e.message, at: new Date().toISOString() }; log(this.state, null, `Command ${c.type} ditolak: ${e.message}`); }
-        if (['pause', 'stop', 'emergency'].includes(c.type)) for (const [id, active] of this.active) if (c.type === 'emergency' || id === c.taskId) active.controller.abort();
+        if (['pause', 'stop', 'emergency', 'report_limit'].includes(c.type)) for (const [id, active] of this.active) {
+          const task = this.state.tasks[c.taskId];
+          if (c.type === 'emergency' || id === c.taskId || (c.type === 'report_limit' && active.profile === `${task.provider}:${task.profile}`)) active.controller.abort();
+        }
         await this.save();
       }
       await this.publish();
@@ -93,21 +96,31 @@ export class Worker {
         const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/^\.+/, '_').slice(0, 120) || 'artifact';
         const path = resolve(taskDir, `${f.id}-${safeName}`); await writeFile(path, bytes, { mode: 0o600 }); files.push(path);
       }
-      const result = await this.browser.submit(structuredClone(current()), profile, files, signal, stage => this.transaction(async () => {
+      const result = await this.browser.submit(structuredClone(current()), profile, files, signal, (stage, url) => this.transaction(async () => {
         const task = current(); task.pending.stage = stage; task.status = stage === 'sent' ? 'AI_WORKING' : 'SUBMITTING_PROMPT';
+        if (url) task.sessionUrl = url;
         log(this.state, task, stage === 'sent' ? 'Prompt dikirim melalui browser. Menunggu respons.' : 'Batas pengiriman disimpan. Tidak akan replay otomatis jika proses terputus.');
         await this.save(); await this.publish();
       }));
       await this.transaction(async () => {
         const task = current(); task.sessionUrl = result.url; task.model = profile.model; recordResponse(this.state, task, result.text);
-        pstate.status = 'CONNECTED'; pstate.profile = task.profile; pstate.model = profile.model; pstate.remaining = 'Unknown';
+        const provider = this.state.providers.find(p => p.id === task.provider);
+        provider.status = 'CONNECTED'; provider.profile = task.profile; provider.model = profile.model; provider.remaining = 'Unknown';
         await this.save(); await this.publish();
       });
     } catch (e) {
       await this.transaction(async () => {
         const task = this.state.tasks[id];
         if (signal.aborted) {
-          if (task?.pending?.id === operationId) { task.pending = null; if (task.status === 'PAUSED') task.resumeStatus = 'WAITING_FOR_USER'; log(this.state, task, 'Operasi browser dibatalkan. Cek provider sebelum mengirim ulang.'); }
+          if (task?.pending?.id === operationId) {
+            task.pending = null;
+            if (task.status === 'PAUSED') task.resumeStatus = 'WAITING_FOR_USER';
+            else if (task.status !== 'STOPPED') {
+              const provider = this.state.providers.find(p => p.id === task.provider);
+              task.status = provider.status === 'RATE_LIMITED' && provider.profile === task.profile ? 'RATE_LIMITED' : 'WAITING_FOR_USER';
+            }
+            log(this.state, task, 'Operasi browser dibatalkan. Cek provider sebelum mengirim ulang.');
+          }
         } else if (task?.pending?.id === operationId) {
           task.status = e.rateLimited ? 'RATE_LIMITED' : 'FAILED'; task.pending = null; log(this.state, task, e.message);
           if (e.rateLimited) { const p = this.state.providers.find(p => p.id === task.provider); p.status = 'RATE_LIMITED'; p.profile = task.profile; p.limitNotice = e.message; p.remaining = 'Unknown'; }

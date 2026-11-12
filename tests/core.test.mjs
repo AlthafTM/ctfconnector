@@ -61,3 +61,13 @@ test('additional attachments invalidate previous approval and regenerate scoped 
   const { s, id, t } = task(); applyCommand(s, command('attachments', id, { files: [{ name: 'safe.txt', size: 1, digest: 'test' }], text: 'File tambahan untuk dianalisis' }));
   assert.equal(t.revision, 2); assert.equal(t.approvedRevision, null); assert.match(t.prompt, /safe.txt/); assert.equal(t.status, 'WAITING_FOR_APPROVAL');
 });
+test('manual quota reports stop the profile and reset requires explicit user action', () => {
+  const { s, id, t } = task(); applyCommand(s, command('report_limit', id, { text: 'Reset pukul 16:00 menurut provider' }));
+  assert.equal(t.status, 'RATE_LIMITED'); assert.equal(s.providers[0].remaining, 'Unknown'); assert.match(s.providers[0].limitNotice, /16:00/);
+  applyCommand(s, command('limit_reset', id)); assert.equal(s.providers[0].status, 'UNVERIFIED'); assert.equal(t.status, 'RATE_LIMITED');
+});
+test('auto triage only classifies category and uses a category-specific prompt plan', () => {
+  const s = initialState(), id = crypto.randomUUID();
+  applyCommand(s, command('create', id, { name: 'RSA sample', category: 'auto', description: 'RSA ciphertext with modulus n', provider: 'chatgpt', files: [] }));
+  assert.equal(s.tasks[id].category, 'crypto'); assert.match(s.tasks[id].prompt, /Inventarisasi algoritma, parameter, nonce/); assert.equal(s.tasks[id].pending, null);
+});

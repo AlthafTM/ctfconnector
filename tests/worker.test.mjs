@@ -40,3 +40,21 @@ test('uncertain send is never replayed after restart and only one worker holds l
     r.files.delete('lease.json'); await other.start(); assert.equal(other.state.tasks[id].status, 'WAITING_FOR_USER'); assert.equal(other.state.tasks[id].pending, null);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+test('pause aborts an actual running operation and resume waits for user without replay', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ctf-cancel-')), r = new MemoryRelay(await keyFromSecret(Buffer.alloc(32, 9).toString('base64url')));
+  const cfg = { profiles: { 'chatgpt:default': { mode: 'automated', freeTierVerified: true, verificationEvidence: 'test only', automationPermissionEvidence: 'test only' } } };
+  const browser = { close() {}, async submit(t, p, f, signal, checkpoint) {
+    await checkpoint('sent');
+    await new Promise((resolve, reject) => { if (signal.aborted) reject(new Error('cancelled')); else signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true }); });
+  } };
+  try {
+    const w = new Worker(r, cfg, browser, dir); await w.start(); const id = crypto.randomUUID();
+    await w.process(command('create', id, { name: 'Safe', category: 'misc', description: 'Sample', provider: 'chatgpt', files: [] }));
+    await w.process(command('approve', id, { revision: 1 })); w.dispatch();
+    for (let i = 0; i < 100 && w.state.tasks[id].status !== 'AI_WORKING'; i++) await new Promise(r => setTimeout(r, 5));
+    assert.equal(w.state.tasks[id].status, 'AI_WORKING'); const operation = w.active.get(id).promise;
+    await w.process(command('pause', id)); await operation;
+    assert.equal(w.state.tasks[id].status, 'PAUSED'); assert.equal(w.state.tasks[id].pending, null);
+    await w.process(command('resume', id)); assert.equal(w.state.tasks[id].status, 'WAITING_FOR_USER');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

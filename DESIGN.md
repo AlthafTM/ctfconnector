@@ -7,6 +7,7 @@ Reading this as: mobile remote operations desk for a CTF participant, in a quiet
 - Segoe UI uses Windows' native readable interface typography; monospace is reserved for prompts and code.
 - The slash in the product wordmark repeats the task/provider/profile hierarchy; no invented logo or illustration.
 - Challenge navigation, conversation and monitor form three columns on desktop because they have different jobs. Mobile stacks them so controls remain reachable.
+- On mobile, challenge content comes before provider details so quota/model notes do not push prompt review below the first screen.
 - Review is a bordered document panel because the whole prompt needs inspection. Provider status uses compact rows rather than promotional cards.
 - Spacing separates authorization, provider handoff and conversation; 44px targets support phone use.
 - Static layout avoids motion competing with incoming messages. Keyboard focus uses the same citron accent.

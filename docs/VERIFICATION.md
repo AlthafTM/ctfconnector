@@ -6,11 +6,14 @@ Date: 12 November 2026. This record distinguishes local fixtures, the real relay
 
 `node --test tests/*.test.mjs` exercises:
 
+The final local run passed 18 tests with zero failures.
+
 - Indonesian six-section prompt and no dispatch before approval.
 - Edited prompt exact text, revision mismatch rejection, rejected prompt and replay deduplication.
 - Pause/resume/stop/retry and emergency reset behavior.
 - Separate challenge histories and provider-switch context handoff requiring approval.
 - User-initiated same-scope follow-up queue and cancellation of unsent follow-ups.
+- Category auto-triage with category-specific prompt methodology; manual limit report/reset.
 - Added attachments invalidating previous approval.
 - Candidate flag extraction without scoreboard submission.
 - Rejection of unknown command verbs and off-provider/login/token-bearing conversation URLs.
@@ -27,6 +30,8 @@ Windows DPAPI protect/unprotect roundtrip was separately run successfully. Node 
 
 Test response `DEMO{connector_transport_only}` is a **fixture**, not a flag found by AI and not a competition submission. No external AI was contacted.
 
+`node scripts/check-running-agent.mjs` separately passed against the real background Windows process. Command `8404716e-4755-47ec-ac89-86666b41a785` was acknowledged by the live worker, with a fresh cloud heartbeat. It was a note on the existing TEST task, never a provider prompt. Worker startup/logs and process existence were also observed. The final background worker PID is recorded locally in `.local/agent.pid`, not hardcoded in this report.
+
 ## Provider boundary
 
 No ChatGPT/Claude/Gemini login, model selection, actual provider file upload, actual provider quota detection or real provider response extraction was verified. The visible-browser CDP adapter exists but requires local selectors, verified free-tier/model access and provider automation permission. Default profiles remain manual and UNVERIFIED. Consumer Claude automated access is restricted by its terms. The shipped fallback is review/copy/open/import using the official provider UI.
@@ -35,4 +40,12 @@ The unattended remote browser-solving part of the original definition of done re
 
 ## Deployment and UI
 
-The final UI/deployment observation is recorded after the GitHub Pages workflow and browser checks. Source-only tests are not a claim that every third-party integration works.
+Browser checks used the production frontend and actual Worker against an isolated in-memory GitHub protocol fixture. Verified login/error/logout, challenge creation/switching, edit/reject/approve, response import, message sending, pause/resume/stop/retry, provider context handoff, manual limit report/reset, completion, emergency/reset, follow-up attachments, multiple uploads, image preview, download, prompt/flag copy, and Escape/focus behavior. A native Windows browser was also used to confirm a file upload. The initial upload-test paths were malformed by the test harness; corrected absolute Windows paths succeeded. This was not a successful external-provider test.
+
+DOM measurements found no horizontal overflow at viewport widths 320, 390, 768 and 1440. The keyboard focus outline was visible (solid, about 3px). Browser error logs were empty in the final fixture check. Foreground text contrast calculations had a minimum of 5.67:1 across the active palette, including hover surfaces.
+
+The first GitHub Pages deployment completed successfully in [workflow 43157918574](https://github.com/AlthafTM/ctfconnector/actions/runs/43157918574) and returned HTTP 200 at https://althaftm.github.io/ctfconnector/. Later commits rerun the same workflow. `node scripts/verify-deployment.mjs` checks every deployed source asset against the local source and checks JavaScript MIME types; the final chat reports the final workflow and commit actually observed.
+
+The authenticated browser-to-real-GitHub flow was not exercised with a phone token: real relay integration and browser fixture checks are separate evidence. A real phone login still requires the owner's fine-grained token and pairing key. The user must verify actual provider sessions/model/free-tier permission before enabling browser automation.
+
+See [UI delivery gate](UI_QA.md) for the scoped interface review. These checks do not certify the provider integration or satisfy the unattended-solver requirement.

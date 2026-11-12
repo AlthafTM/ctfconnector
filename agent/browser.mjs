@@ -83,11 +83,15 @@ export class BrowserManager {
       await checkpoint('sending'); check();
       await cdp.evaluate(`(()=>{const b=document.querySelector(${JSON.stringify(profile.submit)});if(!b || b.disabled)throw Error('Submit unavailable');b.click();})()`, sessionId);
       await checkpoint('sent');
-      let last = '', stable = 0;
+      let last = '', stable = 0, savedUrl = task.sessionUrl;
       for (let i = 0; i < 300; i++) {
         check(); await delay(1500);
         const r = await cdp.evaluate(`({url:location.href,login:!!document.querySelector(${JSON.stringify(profile.login)}),limit:document.querySelector(${JSON.stringify(profile.limit)})?.innerText,busy:!!document.querySelector(${JSON.stringify(profile.busy)}),answers:Array.from(document.querySelectorAll(${JSON.stringify(profile.response)})).map(x=>x.innerText)})`, sessionId);
         if (r.login) throw new Error('Session login kedaluwarsa.');
+        if (r.url !== savedUrl) {
+          let conversation; try { conversation = validSessionUrl(task.provider, r.url); } catch {}
+          if (conversation) { await checkpoint('sent', conversation); savedUrl = conversation; }
+        }
         if (r.limit) { const e = new Error(r.limit.slice(0, 2000)); e.rateLimited = true; throw e; }
         if (r.answers.length <= before.length) continue;
         const text = r.answers.at(-1) || ''; stable = text && text === last && !r.busy ? stable + 1 : 0; last = text;

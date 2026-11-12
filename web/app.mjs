@@ -1,7 +1,7 @@
 import { GitHubRelay } from './relay.mjs';
 import { keyFromSecret } from './crypto.mjs';
 const $ = id => document.getElementById(id);
-let relay, state, selected, timer, polling = false, signedIn = false, renderSignature = '', generation = 0;
+let relay, state, selected, timer, polling = false, signedIn = false, renderSignature = '', generation = 0, pollFailures = 0;
 const urls = new Set(), pendingCommands = new Set();
 function el(tag, text, className) { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (className) n.className = className; return n; }
 function append(parent, ...children) { parent.append(...children); return parent; }
@@ -87,6 +87,14 @@ function renderTask(t) {
   const a = el('a', t.sessionUrl ? 'Buka conversation tersimpan' : 'Buka provider resmi');
   a.href = t.sessionUrl || state.providers.find(p => p.id === t.provider).url; a.target = '_blank'; a.rel = 'noreferrer';
   append(conversation, el('h3', 'Conversation & provider'), a, info);
+  const limitInfo = field('Pesan limit / waktu reset dari provider (jika ada)', 'limit-notice', 'input'); limitInfo.n.maxLength = 2000;
+  const limitBar = el('div', undefined, 'toolbar');
+  limitBar.append(button('Laporkan limit provider', async () => {
+    if (await confirmAction('Tandai profile mencapai limit?', 'Worker membatalkan operasi task ini dan berhenti memakai profile yang limit.')) await send('report_limit', t.id, { text: limitInfo.n.value });
+  }, '', !['WAITING_FOR_USER','AI_WORKING','SUBMITTING_PROMPT'].includes(t.status)), button('Konfirmasi limit sudah reset', async () => {
+    if (await confirmAction('Limit benar-benar sudah reset?', 'Konfirmasi hanya setelah halaman provider menyatakan akun ini bisa dipakai lagi. Tidak mengubah limit resmi provider.')) await send('limit_reset', t.id);
+  }, '', t.status !== 'RATE_LIMITED'));
+  conversation.append(limitInfo.wrap, limitBar);
   const row = el('div', undefined, 'form-row'), provider = field('Pindah provider', 'switch-provider', 'select'), profile = field('Profile yang diotorisasi', 'switch-profile', 'input', t.profile);
   for (const p of state.providers) { const o = el('option', p.name); o.value = p.id; o.selected = p.id === t.provider; provider.n.append(o); }
   append(row, provider.wrap, profile.wrap); conversation.append(row, button('Pindah dengan context handoff', async () => {
@@ -153,13 +161,17 @@ function render() {
   }
 }
 async function poll() {
-  if (polling || !signedIn) return; polling = true; const gen = generation;
+  if (polling || !signedIn) return; polling = true; const gen = generation; let nextDelay = document.hidden ? 30000 : 10000;
   try {
     await relay.verify(); const result = await relay.read('state.json');
     if (!signedIn || gen !== generation) return;
+    pollFailures = 0;
     if (result) { state = result.value; render(); } else notify('Relay terhubung. Worker belum mengirim state; jalankan agent di PC.');
-  } catch (e) { if (gen === generation && signedIn) { $('connection').textContent = 'Relay terputus'; notify(`${e.message}. Riwayat terakhir tetap ditampilkan; sinkronisasi dicoba lagi dengan jeda.`); } }
-  finally { polling = false; if (signedIn) timer = setTimeout(poll, document.hidden ? 30000 : 10000); }
+  } catch (e) { if (gen === generation && signedIn) {
+    pollFailures++; nextDelay = Math.max(Math.min(300000, 10000 * 2 ** Math.min(pollFailures, 5)), (e.retryAfter || 0) * 1000);
+    $('connection').textContent = 'Relay terputus'; notify(`${e.message}. Riwayat terakhir tetap ditampilkan; retry sekitar ${Math.ceil(nextDelay / 1000)} detik lagi.`);
+  } }
+  finally { polling = false; if (signedIn && gen === generation) { clearTimeout(timer); timer = setTimeout(poll, nextDelay); } }
 }
 $('login-form').addEventListener('submit', async e => {
   e.preventDefault(); const b = e.submitter; b.disabled = true; $('login-error').textContent = 'Memeriksa relay privat dan pairing key...';

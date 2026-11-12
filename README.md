@@ -43,10 +43,12 @@ Di HP, buat [fine-grained GitHub token](https://github.com/settings/personal-acc
 
 PC harus tetap menyala, tidak sleep, dan worker tetap berjalan di terminal. `Ctrl+C` menghentikan worker. Setelah crash, pastikan proses worker lama sudah mati sebelum menghapus `.local/worker.lock`; lease cloud bisa membutuhkan sampai 180 detik untuk habis. Jangan jalankan dua worker pada relay yang sama. Installer service/startup otomatis belum dipasang.
 
+Pada PC tempat implementasi ini dibuat, worker awal dijalankan sebagai proses background. PID tersimpan di `.local/agent.pid`; output ada di `.local/agent.stdout.log` dan `.local/agent.stderr.log`. Untuk menghentikan proses background itu, jalankan `Stop-Process -Id (Get-Content .local/agent.pid)` dari folder project. Pastikan PID masih menunjuk proses worker yang sama sebelum menghentikannya. Shutdown paksa dapat meninggalkan lock; tunggu lease habis dan pastikan proses mati sebelum membersihkan lock. Jangan start worker kedua selama proses ini masih aktif.
+
 ## Alur kerja
 
 1. Tambah challenge, kategori, deskripsi, scope, format flag dan file. Maksimal 10 file per challenge, 20 MiB per file; format binary, source, ZIP, PCAP dan gambar ditransfer sebagai bytes, tidak dieksekusi.
-2. Worker menyusun enam bagian prompt Indonesia. Reference [PROMPT MASTER asli](docs/PROMPT_MASTER_ORIGINAL.md) disimpan tanpa perubahan; generator menerapkan struktur dengan template kategori, bukan panggilan LLM berbayar.
+2. Worker menyusun enam bagian prompt Indonesia. Deteksi kategori awal memakai petunjuk deskripsi/nama file dan bisa diganti dengan kategori eksplisit. Reference [PROMPT MASTER asli](docs/PROMPT_MASTER_ORIGINAL.md) disimpan tanpa perubahan; generator menerapkan struktur dengan template dan langkah analisis khusus kategori, bukan panggilan LLM berbayar.
 3. Edit/simpan prompt jika perlu. Setiap edit membuat revisi baru; approval hanya berlaku untuk revisi yang sedang ditampilkan. Prompt belum pernah dikirim sebelum approval.
 4. Default profile menggunakan **handoff manual**. Setelah approval, dashboard meminta user membuka situs resmi provider, memastikan akun/model free tier, menyalin prompt, mengunggah file, lalu mengimpor respons dan URL conversation resmi. Ini dapat dilakukan dari HP. Tidak perlu kembali mengetik instruksi di terminal.
 5. Respons, ringkasan progres, kandidat `FLAG:` dan conversation URL disimpan per challenge. Follow-up memakai session yang sama; user harus mencentang bahwa follow-up masih dalam scope yang disetujui.
@@ -92,6 +94,8 @@ Adapter visible-browser menggunakan CDP loopback. Setelah verifikasi, konfiguras
 ```
 
 Jangan gunakan placeholder di atas sebagai selector aktual. Selector perlu diuji pada UI provider saat itu; markup pihak ketiga bisa berubah. Model yang terlihat harus sesuai config. File di-download dengan checksum ke `.local/downloads/<task>/`; tidak di-unpack atau dijalankan. Satu profile diproses serial; profile independen dapat berjalan bersamaan. Saat limit terlihat, status RATE_LIMITED dan notifikasi asli disimpan; tidak ada retry otomatis melalui akun lain. Persentase/reset quota tidak dikarang: sisa tampil Unknown dan pesan limit asli ditampilkan bila tersedia. Monitoring terhenti jika task dijeda, dihentikan atau koneksi hilang.
+
+Pada handoff manual, gunakan Laporkan limit provider untuk mencatat pesan/reset time yang benar-benar terlihat. Konfirmasi limit sudah reset hanya setelah provider menyatakan akses tersedia lagi; tombol itu tidak mengubah limit resmi. Retry tetap melalui review prompt. Instruksi tambahan dalam scope dapat diantrekan ketika provider masih bekerja. File tambahan membuat revisi prompt baru untuk approval.
 
 **Adapter terhadap situs AI nyata belum diverifikasi end-to-end.** Mode manual adalah fallback fungsional yang tersedia sekarang. Unattended solving via free consumer websites belum terpenuhi tanpa izin, akun login dan adapter yang tervalidasi. Web chat juga tidak otomatis mempunyai akses shell/tool PC; prompt menyatakan batasan itu.
 

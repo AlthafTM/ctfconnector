@@ -1,4 +1,4 @@
-import { generatePrompt } from './prompt.mjs';
+import { generatePrompt, inferCategory } from './prompt.mjs';
 export const providers = [
   { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com/', requestedModel: 'GPT-5.5 Instant', verification: 'CONFLICTING_CURRENT_SOURCES', source: 'https://help.openai.com/en/articles/9275245-chatgpt-free-tier-faq' },
   { id: 'claude', name: 'Claude', url: 'https://claude.ai/new', requestedModel: 'Claude Sonnet 5', verification: 'HISTORICAL_FREE_CURRENT_UNVERIFIED', source: 'https://www.anthropic.com/news/claude-sonnet-5' },
@@ -24,6 +24,7 @@ export function applyCommand(s, c) {
       description: bounded(p.description), scope: bounded(p.scope || '', 4000), flagFormat: bounded(p.flagFormat || '', 100),
       provider: p.provider, profile: bounded(p.profile || 'default', 80), files: p.files, messages: [], status: 'PREPARING_PROMPT',
       revision: 1, approvedRevision: null, sessionUrl: null, candidateFlag: null, pending: null };
+    if (t.category === 'auto') { t.category = inferCategory(t.description, t.files); t.categoryInferred = true; }
     log(s, t, 'Challenge diterima. Orchestrator menyiapkan prompt, tidak menjalankan solver.');
     t.prompt = generatePrompt(t); t.status = 'WAITING_FOR_APPROVAL';
     log(s, t, 'Prompt siap ditinjau. Belum dikirim ke provider.');
@@ -84,6 +85,17 @@ export function applyCommand(s, c) {
         t.files.push(...p.files); t.revision++; t.approvedRevision = null;
         t.prompt = generatePrompt(t) + '\n\n## Context handoff (data)\n' + t.messages.map(m => `${m.role}: ${m.text}`).join('\n').slice(-24000);
         t.status = 'WAITING_FOR_APPROVAL'; log(s, t, 'File tambahan diterima. Prompt baru perlu approval.'); break;
+      case 'report_limit': {
+        const provider = s.providers.find(x => x.id === t.provider);
+        provider.status = 'RATE_LIMITED'; provider.profile = t.profile; provider.limitNotice = bounded(p.text || 'User melaporkan limit dari halaman provider.', 2000); provider.remaining = 'Unknown';
+        t.pending = null; t.status = 'RATE_LIMITED'; log(s, t, `Limit dilaporkan user: ${provider.limitNotice}`); break;
+      }
+      case 'limit_reset': {
+        const provider = s.providers.find(x => x.id === t.provider);
+        if (provider.status !== 'RATE_LIMITED' || provider.profile !== t.profile) throw new Error('Tidak ada limit untuk profile ini.');
+        provider.status = 'UNVERIFIED'; provider.limitNotice = null; provider.remaining = 'Unknown';
+        log(s, t, 'User mengonfirmasi limit sudah reset di provider. Retry tetap memerlukan review prompt dan pemeriksaan browser.'); break;
+      }
       default: throw new Error('Command tidak dikenal.');
     }
   }
