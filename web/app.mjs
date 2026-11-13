@@ -1,6 +1,5 @@
 import { GitHubRelay } from './relay.mjs';
 import { keyFromSecret } from './crypto.mjs';
-import { promptMakerInstructions } from './operator-prompt.mjs';
 import { savedSession, rememberSession, forgetSession } from './session.mjs';
 const $ = id => document.getElementById(id);
 let relay, state, selected, timer, polling = false, signedIn = false, renderSignature = '', generation = 0, pollFailures = 0;
@@ -172,18 +171,19 @@ function renderTask(t) {
   } view.append(messages);
   const form = el('form', undefined, 'composer'), message = field('Pesan', 'message-draft'); message.n.rows = 2;
   const moreFiles = field('File tambahan (membuat prompt untuk review ulang)', 'message-files', 'input'); moreFiles.n.type = 'file'; moreFiles.n.multiple = true;
+  const morePhotos = field('Pilih foto tambahan', 'message-photos', 'input'); morePhotos.n.type = 'file'; morePhotos.n.accept = 'image/*'; morePhotos.n.multiple = true;
   const label = el('label', undefined, 'inline'), follow = el('input'); follow.type = 'checkbox'; follow.id = 'followup'; label.htmlFor = follow.id;
   append(label, follow, document.createTextNode('Teruskan ke provider dalam scope yang sudah disetujui.'));
-  const submit = el('button', 'Kirim pesan', 'primary'); submit.type = 'submit'; submit.disabled = t.status === 'SKIPPED'; append(form, message.wrap, disclosure('Lampiran & follow-up', moreFiles.wrap, label), submit);
+  const submit = el('button', 'Kirim pesan', 'primary'); submit.type = 'submit'; submit.disabled = t.status === 'SKIPPED'; append(form, message.wrap, disclosure('Lampiran & follow-up', morePhotos.wrap, moreFiles.wrap, label), submit);
   form.addEventListener('submit', e => { e.preventDefault(); action(submit, async () => {
-    const uploads = Array.from(moreFiles.n.files);
+    const uploads = [...morePhotos.n.files, ...moreFiles.n.files];
     if (uploads.length) {
       if (t.pending || !['WAITING_FOR_APPROVAL','WAITING_FOR_USER','COMPLETED'].includes(t.status)) throw new Error('Selesaikan operasi aktif dulu sebelum menambahkan file.');
       if (uploads.length + t.files.length > 10 || uploads.some(f => f.size > 20 * 1024 * 1024)) throw new Error('Maksimal 10 attachment, masing-masing 20 MiB.');
       const files = []; for (const f of uploads) { notify(`Mengunggah ${f.name}...`); files.push(await relay.upload(f)); }
       await send('attachments', t.id, { files, text: message.n.value });
     } else { if (!message.n.value.trim()) throw new Error('Isi pesan atau pilih file.'); await send(follow.checked && t.provider === 'claude' ? 'outgoing' : 'message', t.id, { text: message.n.value, followup: follow.checked }); }
-    message.n.value = ''; moreFiles.n.value = ''; follow.checked = false;
+    message.n.value = ''; moreFiles.n.value = ''; morePhotos.n.value = ''; follow.checked = false;
   }); });
   const resultBubble = view.querySelector('.result'); if (resultBubble) view.append(resultBubble);
   view.append(form);
@@ -284,9 +284,6 @@ $('refresh').addEventListener('click', () => { clearTimeout(timer); poll(); });
 $('new-task').addEventListener('click', () => $('create-dialog').showModal());
 $('close-create').addEventListener('click', () => $('create-dialog').close());
 $('close-image').addEventListener('click', () => $('image-dialog').close());
-$('prompt-maker').addEventListener('click', () => { $('maker-text').value = promptMakerInstructions(selected || '<TASK_ID>'); $('maker-dialog').showModal(); });
-$('close-maker').addEventListener('click', () => $('maker-dialog').close());
-$('copy-maker').addEventListener('click', e => action(e.target, () => navigator.clipboard.writeText($('maker-text').value).then(() => { $('maker-status').textContent = 'Prompt disalin.'; })));
 $('image-dialog').addEventListener('close', () => { const url = $('preview-image').src; URL.revokeObjectURL(url); urls.delete(url); $('preview-image').removeAttribute('src'); });
 $('emergency').addEventListener('click', e => action(e.target, async () => {
   if (await confirmAction('Emergency stop semua task?', 'Worker akan membatalkan semua operasi yang dikelolanya saat command diterima. Jika koneksi putus, hentikan worker langsung di PC.')) await send('emergency', null);
@@ -295,7 +292,7 @@ $('reset-emergency').addEventListener('click', e => action(e.target, async () =>
 $('create-form').addEventListener('submit', async e => {
   e.preventDefault(); const b = e.submitter; b.disabled = true; const currentRelay = relay;
   try {
-    const uploads = Array.from($('files').files);
+    const uploads = [...$('photos').files, ...$('files').files];
     if (!$('description').value.trim() && !uploads.length) throw new Error('Isi teks soal atau lampirkan foto/file.');
     if (uploads.length > 10 || uploads.some(f => f.size > 20 * 1024 * 1024)) throw new Error('Maksimal 10 file, masing-masing 20 MiB.');
     const files = [];
@@ -309,3 +306,6 @@ $('create-form').addEventListener('submit', async e => {
 });
 
 $('back-home').addEventListener('click', () => { selected = undefined; renderSignature = ''; render(); });
+
+for (const [buttonId, dialogId] of [['open-providers','providers-dialog'],['open-worker','worker-dialog'],['open-log','log-dialog']]) $(buttonId).addEventListener('click', () => $(dialogId).showModal());
+for (const close of document.querySelectorAll('[data-close]')) close.addEventListener('click', () => $(close.dataset.close).close());

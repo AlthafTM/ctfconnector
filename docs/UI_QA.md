@@ -69,3 +69,5 @@ Auto-accept controls use the existing checkbox/editor styles and 44px label targ
 Skip uses the existing task controls, a reason input, and a result-area New question action. Browser fixture verified the reason is shown and the creation dialog opens after skipping; message sending is disabled for SKIPPED. English AI instructions are visible in the prompt-maker dialog.
 
 Black/gray/white redesign: question-card home, dedicated chat and back action, rounded controls, red decision markers, prefilled prompt editor, and result inside chat. New tasks default to manual review. Source syntax and regression suite passed. Browser visual QA was blocked by the computer-use runtime asset-path error, so no new screenshot or visual-pass claim is made.
+
+Phone refinement: markup checks passed for unique IDs, separate image/* photo input without capture restriction, general file input, three utility dialogs, and removed prompt-maker wiring. Browser QA remains blocked after a runtime reset by the missing kernel asset-path error; real iPhone picker behavior and visual overflow were not verified in this revision. Existing 38 regression tests pass.

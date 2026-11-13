@@ -12,7 +12,7 @@ Codex menjadi prompt maker/operator. Solver yang diminta: **Claude desktop, Sonn
 4. Operator menjalankan workflow Claude, browser CTF, tool/WSL atau VM yang tersedia dalam scope. Pertanyaan dikirim ke website.
 5. Hasil ringkas tampil di bagian atas soal. File solver hanya muncul jika diperlukan.
 
-Detail provider, log dan kontrol lain dilipat supaya layar HP tidak penuh teks. Tombol Prompt untuk AI prompt maker menyediakan instruksi siap salin. Versi berkas: [PROMPT_MAKER.md](docs/PROMPT_MAKER.md). [PROMPT MASTER asli](docs/PROMPT_MASTER_ORIGINAL.md) tetap utuh dan diuji hash-nya.
+Detail provider, log dan kontrol lain dilipat supaya layar HP tidak penuh teks. Instruksi operator tersedia dalam berkas: [PROMPT_MAKER.md](docs/PROMPT_MAKER.md). [PROMPT MASTER asli](docs/PROMPT_MASTER_ORIGINAL.md) tetap utuh dan diuji hash-nya.
 
 ## File lokal per soal
 
