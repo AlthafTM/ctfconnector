@@ -7,6 +7,7 @@ import { keyFromSecret, seal, open } from '../web/crypto.mjs';
 import { initialState, applyCommand, log, recordResponse } from './core.mjs';
 import { BrowserManager } from './browser.mjs';
 import { materializeTask, saveResult, workspaceMarker } from './workspace.mjs';
+import { cleanDeletedTasks } from './deletion.mjs';
 export class Worker {
   constructor(relay, cfg, browser, dataDir = localDir) {
     this.relay = relay; this.cfg = cfg; this.browser = browser; this.dir = dataDir;
@@ -58,7 +59,7 @@ export class Worker {
         const next = structuredClone(this.state);
         try { applyCommand(next, c); this.state = next; }
         catch (e) { this.state.processed[c.id] = { status: 'rejected', error: e.message, at: new Date().toISOString() }; log(this.state, null, `Command ${c.type} ditolak: ${e.message}`); }
-        if (this.state.processed[c.id]?.status === 'ok' && ['pause', 'stop','skip', 'emergency', 'report_limit'].includes(c.type)) for (const [id, active] of this.active) {
+        if (['ok', 'pending'].includes(this.state.processed[c.id]?.status) && ['delete', 'pause', 'stop','skip', 'emergency', 'report_limit'].includes(c.type)) for (const [id, active] of this.active) {
           const task = this.state.tasks[c.taskId];
           if (c.type === 'emergency' || id === c.taskId || (c.type === 'report_limit' && active.profile === `${task.provider}:${task.profile}`)) active.controller.abort();
         }
@@ -141,6 +142,9 @@ export class Worker {
   }
   async tick() {
     if (Date.now() - this.leaseAt > 60000) await this.transaction(() => this.lease());
+    if (Object.keys(this.state.deletions || {}).length) await this.transaction(async () => {
+      await cleanDeletedTasks(this.state, this.relay); await this.save(); await this.publish();
+    });
     const entries = await this.relay.commands(), commands = [];
     for (const e of entries) {
       if (commands.length >= 100) break;
@@ -167,12 +171,14 @@ export class Worker {
         if (snapshot.result && snapshot.localResultAt !== snapshot.result.at) await saveResult(this.cfg.workspaceRoot, snapshot, this.relay);
         await this.transaction(async () => {
           const current = this.state.tasks[snapshot.id];
+          if (!current) return;
           if (current.revision === snapshot.revision) { current.localRevision = snapshot.revision; current.localReady = true; current.localError = null; current.localMarker = marker; }
           if (current.result?.at === snapshot.result?.at && snapshot.result) current.localResultAt = snapshot.result.at;
           await this.save(); await this.publish();
         });
       })().catch(e => this.transaction(async () => {
         const current = this.state.tasks[snapshot.id];
+        if (!current) return;
         if (current.localError !== e.message) log(this.state, current, `Folder lokal: ${e.message}. Gunakan Retry file lokal setelah penyebabnya ditangani.`);
         current.localError = e.message; current.localFailedMarker = workspaceMarker(current); await this.save(); await this.publish();
       })).catch(e => console.error('Local workspace:', e.message)).finally(() => this.localWork.delete(task.id));

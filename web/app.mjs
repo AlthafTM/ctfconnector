@@ -114,6 +114,9 @@ function renderTask(t) {
   if (oldOutgoing !== outgoingVersion) delete draft['outgoing-draft'];
   view.replaceChildren(); view.dataset.taskId = t.id; view.dataset.revision = t.revision; view.dataset.outgoing = outgoingVersion;
   const heading = el('div', undefined, 'task-title'); append(heading, el('h2', t.name), el('span', statusNames[t.status] || t.status, 'status')); view.append(heading);
+  view.append(button('Hapus soal', async () => {
+    if (await confirmAction('Hapus soal dan file cloud?', 'Chat soal, lampiran, dan solver di relay aktif akan dihapus. Folder lokal dan chat Claude tetap ada. Riwayat GitHub masih dapat menyimpan data lama.')) await send('delete', t.id, {});
+  }, 'danger'));
   if (t.status === 'SKIPPED') view.append(el('p', `Skipped: ${t.skip?.reason || 'Search ended.'}`, 'notice'), button('Send a new question', () => $('create-dialog').showModal(), 'primary'));
   const autoLabel = el('label', undefined, 'remember-device'), auto = el('input'); auto.type = 'checkbox'; auto.id = 'auto-accept'; auto.checked = !!t.autoAccept; auto.disabled = state.emergency;
   auto.addEventListener('change', () => { auto.disabled = true; send('auto_accept', t.id, { enabled: auto.checked }).catch(e => { auto.checked = !!t.autoAccept; auto.disabled = false; notify(e.message); }); });
@@ -273,7 +276,7 @@ function render() {
   const fresh = state.heartbeat && Date.now() - Date.parse(state.heartbeat) < 150000;
   $('connection').textContent = fresh ? 'PC terhubung' : 'PC offline / heartbeat lama';
   if (state.emergency) notify('Emergency stop aktif. Reset hanya membuka antrean; task tetap dihentikan.');
-  for (const [id, command] of pendingCommands) if (Object.hasOwn(state.processed, id)) {
+  for (const [id, command] of pendingCommands) if (Object.hasOwn(state.processed, id) && state.processed[id].status !== 'pending') {
     const p = state.processed[id]; notify(p.status === 'ok' ? `${({ approve: 'Prompt disetujui', reject: 'Prompt ditolak', edit: 'Perubahan disimpan', create: 'Soal dibuat', answer: 'Jawaban diterima' })[command.type] || 'Perubahan diterima'} · dikonfirmasi worker.` : `Gagal diproses: ${p.error}`, p.status === 'ok' ? 'success' : 'error'); pendingCommands.delete(id);
   }
   syncPending();

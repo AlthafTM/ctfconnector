@@ -1,5 +1,6 @@
 import { generatePrompt, inferCategory } from './prompt.mjs';
 import { SOLVER_POLICY } from './operator-prompt.mjs';
+import { filePaths } from './deletion.mjs';
 export const providers = [
   { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com/', requestedModel: 'GPT-5.5 Instant', verification: 'CONFLICTING_CURRENT_SOURCES', source: 'https://help.openai.com/en/articles/9275245-chatgpt-free-tier-faq' },
   { id: 'claude', name: 'Claude', url: 'https://claude.ai/new', requestedModel: 'Claude Sonnet 5', verification: 'HISTORICAL_FREE_CURRENT_UNVERIFIED', source: 'https://www.anthropic.com/news/claude-sonnet-5' },
@@ -43,6 +44,14 @@ export function applyCommand(s, c) {
     log(s, t, 'Challenge diterima. Orchestrator menyiapkan prompt, tidak menjalankan solver.');
     t.prompt = t.transcriptionRequired ? '' : generatePrompt(t); t.status = t.transcriptionRequired ? 'WAITING_FOR_TRANSCRIPTION' : 'WAITING_FOR_APPROVAL';
     log(s, t, t.transcriptionRequired ? 'Foto diterima. Menunggu operator membaca dan menyalin soal menjadi teks.' : 'Prompt siap ditinjau. Belum dikirim ke provider.');
+  } else if (c.type === 'delete') {
+    if (!t) throw new Error('Task tidak ditemukan.');
+    s.deletions ||= {};
+    s.deletions[t.id] = { paths: [...filePaths(t)], commandId: c.id };
+    s.audit = s.audit.filter(item => item.taskId !== t.id);
+    delete s.tasks[t.id];
+    s.processed[c.id] = { at: c.at, status: 'pending' };
+    return true;
   } else if (c.type === 'emergency') {
     s.emergency = true;
     for (const x of Object.values(s.tasks)) if (!['COMPLETED', 'STOPPED','SKIPPED'].includes(x.status)) { x.status = 'STOPPED'; x.pending = null; x.followups = []; log(s, x, 'Emergency stop diterima.'); }
