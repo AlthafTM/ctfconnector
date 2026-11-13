@@ -24,7 +24,7 @@ test('photo cannot be approved until it has an explicit text transcription', () 
   const { s, id, t } = create(true); assert.equal(t.status, 'WAITING_FOR_TRANSCRIPTION'); assert.equal(t.prompt, '');
   assert.throws(() => applyCommand(s, cmd('approve', id, { revision: 1 })));
   applyCommand(s, cmd('transcribe', id, { text: 'RSA ciphertext dan modulus dari foto latihan.' }));
-  assert.equal(t.status, 'WAITING_FOR_APPROVAL'); assert.equal(t.category, 'crypto'); assert.match(t.prompt, /solver ONLY if needed/);
+  assert.equal(t.status, 'WAITING_FOR_APPROVAL'); assert.equal(t.category, 'crypto'); assert.match(t.prompt, /solver kalau memang dibutuhkan/);
 });
 test('Sonnet 5.5, thinking low/on, unknown free tier, and stale settings cannot authorize take', () => {
   const { s, id, t } = create();
@@ -139,8 +139,8 @@ test('turning auto accept off while paused keeps the task paused and requires re
  applyCommand(s,cmd('resume',id));assert.equal(t.status,'WAITING_FOR_APPROVAL');assert.equal(t.approvedRevision,null);
 });
 test('Claude gets a short English prompt; Codex alone owns skipping', () => {
- const {t}=create();assert.match(t.prompt,/this looks like a/);assert.match(t.prompt,/the question is:/);assert.equal(t.prompt.includes("SKIP_REQUEST"),false);assert.equal(t.prompt.includes("PROMPT MAKER"),false);assert.ok(t.prompt.includes(t.description));
- const maker=promptMakerInstructions();assert.match(maker,/write all AI prompts and follow-up text in English/);assert.match(maker,/no long intro/);assert.match(maker,/Codex alone decides when to skip, not Claude/);assert.match(maker,/dont skip just because it looks difficult/);assert.match(maker,/operator.mjs skip/);
+ const {t}=create();assert.match(t.prompt,/event\/kompetisi CTF/);assert.match(t.prompt,/the question is:/);assert.equal(t.prompt.includes("SKIP_REQUEST"),false);assert.equal(t.prompt.includes("PROMPT MAKER"),false);assert.ok(t.prompt.includes(t.description));
+ const maker=promptMakerInstructions();assert.match(maker,/opening and additional AI instructions in casual Indonesian/);assert.match(maker,/replies and follow-ups should be short/);assert.match(maker,/Codex alone decides when to skip, not Claude/);assert.match(maker,/dont skip just because it looks difficult/);assert.match(maker,/operator.mjs skip/);
 });
 test('skip ends an active question, preserves evidence, and blocks sending until explicit retry', () => {
  const {s,id,t}=ready();applyCommand(s,cmd('auto_accept',id,{enabled:true}));applyCommand(s,cmd('outgoing',id,{text:'fixture pending text'}));

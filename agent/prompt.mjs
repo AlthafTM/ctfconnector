@@ -13,7 +13,7 @@ export function inferCategory(description, files = []) {
 }
 export function generatePrompt(t) {
   const category = ['pwn','rev','web','crypto','forensics','stego','osint','misc'].includes(t.category) ? t.category : 'misc';
-  return `this looks like a ${category} question.
+  return `ini soal dari event/kompetisi CTF, bagian ${category}.
 
 the question is:
 ${t.description}${t.flagFormat ? `
@@ -22,5 +22,5 @@ the flag format is ${t.flagFormat}` : ''}${t.scope ? `
 
 scope: ${t.scope}` : ''}
 
-give the flag and a solver ONLY if needed. if u need something run on the PC, send me the command.`;
+kalau perlu jalanin command di PC, kirim command-nya aja. solver kalau memang dibutuhkan.`;
 }
