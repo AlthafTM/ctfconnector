@@ -3,16 +3,27 @@ import { keyFromSecret } from './crypto.mjs';
 import { savedSession, rememberSession, forgetSession } from './session.mjs';
 const $ = id => document.getElementById(id);
 let relay, state, selected, timer, polling = false, signedIn = false, renderSignature = '', generation = 0, pollFailures = 0;
-const urls = new Set(), pendingCommands = new Set();
+const urls = new Set(), pendingCommands = new Map();
 function el(tag, text, className) { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (className) n.className = className; return n; }
 function append(parent, ...children) { parent.append(...children); return parent; }
 function disclosure(title, ...children) { const d = el('details'); d.append(el('summary', title), ...children); return d; }
 const statusNames = { WAITING_FOR_TRANSCRIPTION: 'Baca foto', WAITING_FOR_APPROVAL: 'Review prompt', WAITING_FOR_OPERATOR: 'Menunggu Codex', AI_WORKING: 'Dikerjakan', WAITING_FOR_USER: 'Butuh jawaban', RATE_LIMITED: 'Limit provider', PAUSED: 'Dijeda', STOPPED: 'Dihentikan', SKIPPED: 'Skipped', COMPLETED: 'Selesai', FAILED: 'Gagal', SUBMITTING_PROMPT: 'Menyiapkan' };
 function time(at) { return at ? new Date(at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'medium' }) : 'Belum ada'; }
-function notify(text) { $('notice').textContent = text; }
+function notify(text, kind = 'info') { $('notice').textContent = text; $('notice').dataset.kind = kind; }
+function busy(button, label = 'Memproses…') {
+  const original = button.textContent, disabled = button.disabled;
+  button.disabled = true; button.setAttribute('aria-busy', 'true'); button.textContent = label;
+  return () => { button.textContent = original; button.removeAttribute('aria-busy'); button.disabled = disabled; if (button.hasAttribute('data-command-disabled')) button.dataset.commandDisabled = String(disabled); };
+}
 async function action(button, fn) {
-  button.disabled = true;
-  try { await fn(); } catch (e) { notify(e.message); } finally { if (button.isConnected) button.disabled = false; }
+  if (button.disabled) return;
+  const restore = busy(button);
+  const area = button.closest('.toolbar, form, section') || button.parentElement;
+  area?.querySelector('.action-error')?.remove();
+  try { await fn(); } catch (e) {
+    notify(e.message, 'error');
+    if (area?.isConnected) { const error = el('p', e.message, 'notice action-error'); error.dataset.kind = 'error'; error.setAttribute('role', 'alert'); area.append(error); error.scrollIntoView({ block: 'nearest', behavior: 'instant' }); }
+  } finally { restore(); syncPending(); }
 }
 function button(text, fn, cls, disabled = false) {
   const b = el('button', text, cls); b.type = 'button'; b.disabled = disabled;
@@ -24,9 +35,30 @@ async function confirmAction(title, text) {
   return new Promise(resolve => { d.addEventListener('close', () => resolve(d.returnValue === 'yes'), { once: true }); d.showModal(); });
 }
 async function send(type, taskId, payload) {
-  const id = await relay.command(type, taskId, payload); pendingCommands.add(id);
-  notify('Command tersimpan di relay. Menunggu worker mengonfirmasi.');
+  if ([...pendingCommands.values()].some(c => c.taskId === taskId)) throw new Error('Perubahan sebelumnya masih menunggu worker. Jangan kirim ulang dulu.');
+  notify('Mengirim perubahan ke relay…', 'loading');
+  const temporary = crypto.randomUUID(), command = { taskId, type, at: Date.now() };
+  pendingCommands.set(temporary, command); syncPending();
+  let id;
+  try { id = await relay.command(type, taskId, payload); }
+  catch (e) { pendingCommands.delete(temporary); syncPending(); throw e; }
+  pendingCommands.delete(temporary); pendingCommands.set(id, command);
+  notify('Terkirim. Menunggu konfirmasi worker…', 'loading'); syncPending();
   clearTimeout(timer); timer = setTimeout(poll, 1500); return id;
+}
+function syncPending() {
+  const view = $('task-view'), pending = [...pendingCommands.values()].find(c => c.taskId === selected);
+  view.setAttribute('aria-busy', String(!!pending));
+  let status = $('task-command-status');
+  if (!pending) {
+    status?.remove();
+    for (const n of view.querySelectorAll('[data-command-disabled]')) { n.disabled = n.dataset.commandDisabled === 'true'; delete n.dataset.commandDisabled; }
+    return;
+  }
+  if (!status) { status = el('p', undefined, 'notice command-status'); status.id = 'task-command-status'; status.setAttribute('role', 'status'); view.prepend(status); }
+  status.dataset.kind = 'loading';
+  status.textContent = Date.now() - pending.at > 30000 ? 'Belum ada konfirmasi worker. Perubahan tetap dalam antrean; jangan kirim ulang. Cek koneksi PC di Worker.' : 'Perubahan terkirim · menunggu konfirmasi worker…';
+  for (const n of view.querySelectorAll('button, input[type=checkbox]')) { if (!n.hasAttribute('data-command-disabled')) n.dataset.commandDisabled = String(n.disabled); n.disabled = true; }
 }
 function field(label, id, tag = 'textarea', value = '') {
   const wrap = el('div'), l = el('label', label), n = el(tag); l.htmlFor = id; n.id = id; n.value = value;
@@ -180,7 +212,7 @@ function renderTask(t) {
     if (uploads.length) {
       if (t.pending || !['WAITING_FOR_APPROVAL','WAITING_FOR_USER','COMPLETED'].includes(t.status)) throw new Error('Selesaikan operasi aktif dulu sebelum menambahkan file.');
       if (uploads.length + t.files.length > 10 || uploads.some(f => f.size > 20 * 1024 * 1024)) throw new Error('Maksimal 10 attachment, masing-masing 20 MiB.');
-      const files = []; for (const f of uploads) { notify(`Mengunggah ${f.name}...`); files.push(await relay.upload(f)); }
+      const files = []; for (const [i, f] of uploads.entries()) { notify(`Mengunggah ${i + 1}/${uploads.length}: ${f.name}…`, 'loading'); files.push(await relay.upload(f)); }
       await send('attachments', t.id, { files, text: message.n.value });
     } else { if (!message.n.value.trim()) throw new Error('Isi pesan atau pilih file.'); await send(follow.checked && t.provider === 'claude' ? 'outgoing' : 'message', t.id, { text: message.n.value, followup: follow.checked }); }
     message.n.value = ''; moreFiles.n.value = ''; morePhotos.n.value = ''; follow.checked = false;
@@ -225,9 +257,10 @@ function render() {
   const fresh = state.heartbeat && Date.now() - Date.parse(state.heartbeat) < 150000;
   $('connection').textContent = fresh ? 'PC terhubung' : 'PC offline / heartbeat lama';
   if (state.emergency) notify('Emergency stop aktif. Reset hanya membuka antrean; task tetap dihentikan.');
-  for (const id of pendingCommands) if (Object.hasOwn(state.processed, id)) {
-    const p = state.processed[id]; notify(p.status === 'ok' ? 'Worker sudah menerima command.' : `Command ditolak: ${p.error}`); pendingCommands.delete(id);
+  for (const [id, command] of pendingCommands) if (Object.hasOwn(state.processed, id)) {
+    const p = state.processed[id]; notify(p.status === 'ok' ? `${({ approve: 'Prompt disetujui', reject: 'Prompt ditolak', edit: 'Perubahan disimpan', create: 'Soal dibuat', answer: 'Jawaban diterima' })[command.type] || 'Perubahan diterima'} · dikonfirmasi worker.` : `Gagal diproses: ${p.error}`, p.status === 'ok' ? 'success' : 'error'); pendingCommands.delete(id);
   }
+  syncPending();
 }
 async function poll() {
   if (polling || !signedIn) return; polling = true; const gen = generation; let nextDelay = document.hidden ? 30000 : 10000;
@@ -238,9 +271,9 @@ async function poll() {
     if (result) { state = result.value; render(); } else notify('Relay terhubung. Worker belum mengirim state; jalankan agent di PC.');
   } catch (e) { if (gen === generation && signedIn) {
     pollFailures++; nextDelay = Math.max(Math.min(300000, 10000 * 2 ** Math.min(pollFailures, 5)), (e.retryAfter || 0) * 1000);
-    $('connection').textContent = 'Relay terputus'; notify(`${e.message}. Riwayat terakhir tetap ditampilkan; retry sekitar ${Math.ceil(nextDelay / 1000)} detik lagi.`);
+    $('connection').textContent = 'Relay terputus'; notify(`${e.message}. Riwayat terakhir tetap ditampilkan; retry sekitar ${Math.ceil(nextDelay / 1000)} detik lagi.`, 'error');
   } }
-  finally { polling = false; if (signedIn && gen === generation) { clearTimeout(timer); timer = setTimeout(poll, nextDelay); } }
+  finally { polling = false; if (signedIn && gen === generation) { syncPending(); clearTimeout(timer); timer = setTimeout(poll, pendingCommands.size ? 3000 : nextDelay); } }
 }
 async function connect(candidate) {
   await candidate.verify(); await candidate.read('lease.json'); const snapshot = await candidate.read('state.json');
@@ -249,14 +282,14 @@ async function connect(candidate) {
   if (snapshot) { state = snapshot.value; render(); } clearTimeout(timer); timer = setTimeout(poll, 0);
 }
 $('login-form').addEventListener('submit', async e => {
-  e.preventDefault(); const b = e.submitter; b.disabled = true; $('login-error').textContent = 'Memeriksa relay privat dan pairing key...';
+  e.preventDefault(); const b = e.submitter; if (b.disabled) return; const restore = busy(b, 'Menghubungkan…'); $('login-error').textContent = 'Memeriksa relay privat dan pairing key...';
   try {
     const candidate = new GitHubRelay($('repo').value.trim(), $('token').value.trim(), await keyFromSecret($('key').value.trim()));
     await connect(candidate);
     try { if ($('remember').checked) await rememberSession(candidate); else await forgetSession(); }
     catch { notify('Terhubung, tetapi browser tidak bisa menyimpan koneksi. Setelah tab ditutup perlu pairing ulang.'); }
   } catch (e) { $('login-error').textContent = e.name === 'OperationError' ? 'Pairing key salah atau data tidak cocok.' : e.message; }
-  finally { b.disabled = false; }
+  finally { restore(); }
 });
 async function restoreConnection() {
   const controls = [...$('login-form').querySelectorAll('input,button')];
@@ -280,7 +313,7 @@ $('logout').addEventListener('click', async () => {
   $('remember').checked = false;
   try { await forgetSession(); } catch { $('login-error').textContent = 'Koneksi tersimpan gagal dihapus. Hapus data situs ini lewat pengaturan browser.'; }
 });
-$('refresh').addEventListener('click', () => { clearTimeout(timer); poll(); });
+$('refresh').addEventListener('click', e => action(e.currentTarget, async () => { clearTimeout(timer); notify('Menyinkronkan status…', 'loading'); await poll(); if (!pollFailures && !pendingCommands.size) notify('Status terbaru sudah dimuat.', 'success'); }));
 $('new-task').addEventListener('click', () => $('create-dialog').showModal());
 $('close-create').addEventListener('click', () => $('create-dialog').close());
 $('close-image').addEventListener('click', () => $('image-dialog').close());
@@ -290,19 +323,19 @@ $('emergency').addEventListener('click', e => action(e.target, async () => {
 }));
 $('reset-emergency').addEventListener('click', e => action(e.target, async () => { if (await confirmAction('Reset emergency?', 'Membuka antrean baru. Task yang dihentikan tidak dilanjutkan otomatis.')) await send('reset_emergency', null); }));
 $('create-form').addEventListener('submit', async e => {
-  e.preventDefault(); const b = e.submitter; b.disabled = true; const currentRelay = relay;
+  e.preventDefault(); const b = e.submitter; if (b.disabled) return; const restore = busy(b, 'Mengirim soal…'); const currentRelay = relay;
   try {
     const uploads = [...$('photos').files, ...$('files').files];
     if (!$('description').value.trim() && !uploads.length) throw new Error('Isi teks soal atau lampirkan foto/file.');
     if (uploads.length > 10 || uploads.some(f => f.size > 20 * 1024 * 1024)) throw new Error('Maksimal 10 file, masing-masing 20 MiB.');
     const files = [];
-    for (const f of uploads) { $('create-error').textContent = `Mengenkripsi dan mengunggah ${f.name}...`; files.push(await currentRelay.upload(f)); }
+    for (const [i, f] of uploads.entries()) { b.textContent = `Upload ${i + 1}/${uploads.length}…`; $('create-error').textContent = `Mengenkripsi dan mengunggah ${f.name}...`; files.push(await currentRelay.upload(f)); }
     if (!signedIn || currentRelay !== relay) throw new Error('Session logout saat upload. Masuk kembali.');
     const taskId = crypto.randomUUID();
     await send('create', taskId, { name: $('name').value.trim() || `Soal ${new Date().toLocaleString('id-ID')}`, category: $('category').value, description: $('description').value, scope: $('scope').value,
       flagFormat: $('flag-format').value, provider: 'claude', profile: $('profile').value, autoAccept: $('create-auto-accept').checked, files, inputMode: !$('description').value.trim() && uploads.some(f => f.type.startsWith('image/')) ? 'photo' : 'text' });
     selected = taskId; $('create-dialog').close(); $('create-form').reset(); $('profile').value = 'default'; $('create-error').textContent = '';
-  } catch (e) { $('create-error').textContent = e.message; } finally { b.disabled = false; }
+  } catch (e) { $('create-error').textContent = e.message; notify(e.message, 'error'); } finally { restore(); }
 });
 
 $('back-home').addEventListener('click', () => { selected = undefined; renderSignature = ''; render(); });
