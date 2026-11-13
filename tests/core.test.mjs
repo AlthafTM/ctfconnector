@@ -59,7 +59,7 @@ test('instructions during provider work are queued in order and stop clears unse
 });
 test('additional attachments invalidate previous approval and regenerate scoped handoff', () => {
   const { s, id, t } = task(); applyCommand(s, command('attachments', id, { files: [{ name: 'safe.txt', size: 1, digest: 'test' }], text: 'File tambahan untuk dianalisis' }));
-  assert.equal(t.revision, 2); assert.equal(t.approvedRevision, null); assert.match(t.prompt, /safe.txt/); assert.equal(t.status, 'WAITING_FOR_APPROVAL');
+  assert.equal(t.revision, 2); assert.equal(t.approvedRevision, null); assert.equal(t.files[0].name, 'safe.txt'); assert.equal(t.status, 'WAITING_FOR_APPROVAL');
 });
 test('manual quota reports stop the profile and reset requires explicit user action', () => {
   const { s, id, t } = task(); applyCommand(s, command('report_limit', id, { text: 'Reset pukul 16:00 menurut provider' }));
@@ -69,5 +69,5 @@ test('manual quota reports stop the profile and reset requires explicit user act
 test('auto triage only classifies category and uses a category-specific prompt plan', () => {
   const s = initialState(), id = crypto.randomUUID();
   applyCommand(s, command('create', id, { name: 'RSA sample', category: 'auto', description: 'RSA ciphertext with modulus n', provider: 'chatgpt', files: [] }));
-  assert.equal(s.tasks[id].category, 'crypto'); assert.match(s.tasks[id].prompt, /list the algorithm, parameters, nonces/); assert.equal(s.tasks[id].pending, null);
+  assert.equal(s.tasks[id].category, 'crypto'); assert.match(s.tasks[id].prompt, /crypto ctf/); assert.equal(s.tasks[id].pending, null);
 });

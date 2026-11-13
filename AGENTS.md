@@ -18,3 +18,5 @@
 - Codex alone decides whether evidence-based attempts have stalled or an unavailable dependency blocks progress, then may end that question with operator.mjs skip and a concrete reason/attempts. Do not give up merely because it looks difficult. SKIPPED must not be resumed by polling or new messages; only an explicit retry reopens it. Keep evidence locally, post the reason on the website, and allow a new question immediately.
 
 - Claude receives only a short English prompt in the user's casual style: question, necessary context/scope, and flag/optional solver request. Full instructions, website workflow, and skip policy belong to Codex only. Do not tell Claude to decide when to skip.
+
+- Prompt formatting: "the question is", actual question/title, flag pattern only. Omit screenshot author/points/solves metadata, download labels, attached-file inventory, and submission-form requirements from text sent to Claude. Keep those locally. Track lowercase validation internally, without appending "all lowercase" to the prompt.
