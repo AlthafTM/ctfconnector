@@ -101,13 +101,13 @@ function renderTask(t) {
     const flag = el('section', undefined, 'flag'); append(flag, el('h3', 'Kandidat flag'), el('pre', t.candidateFlag), el('p', 'Belum berarti diterima scoreboard.'), button('Salin kandidat flag', () => navigator.clipboard.writeText(t.candidateFlag).then(() => notify('Kandidat flag disalin.')))); view.append(flag);
   }
   if (t.prompt) {
-    const approval = el('details', undefined, 'approval'); approval.open = t.status === 'WAITING_FOR_APPROVAL'; approval.append(el('summary', `Prompt / revisi ${t.revision}`));
+    const approval = el('details', undefined, 'approval'); approval.open = t.status === 'WAITING_FOR_APPROVAL'; approval.append(el('summary', `Prompt dari AI - revisi ${t.revision}`));
     const { wrap, n } = field('Isi prompt lengkap', 'prompt-draft', 'textarea', t.prompt); n.readOnly = !['WAITING_FOR_APPROVAL','WAITING_FOR_USER','SUBMITTING_PROMPT','WAITING_FOR_OPERATOR'].includes(t.status) || (!!t.pending && (t.pending.kind !== 'initial' || !['queued','operator'].includes(t.pending.stage)));
     approval.append(wrap);
     const bar = el('div', undefined, 'toolbar');
     bar.append(button('Salin prompt', () => navigator.clipboard.writeText(n.value).then(() => notify('Prompt disalin.'))),
-      button('Simpan edit', () => send('edit', t.id, { text: n.value, revision: t.revision }), '', n.readOnly),
-      button('Setujui & teruskan', async () => {
+      button('Simpan perubahan', () => send('edit', t.id, { text: n.value, revision: t.revision }), '', n.readOnly),
+      button('Setujui prompt', async () => {
         if (n.value !== t.prompt) throw new Error('Simpan edit dulu dan tunggu revisi baru sebelum approval.');
         await send('approve', t.id, { revision: t.revision });
       }, 'primary', t.status !== 'WAITING_FOR_APPROVAL' || state.emergency),
@@ -164,7 +164,7 @@ function renderTask(t) {
   draftForm.addEventListener('submit', e => { e.preventDefault(); action(draftButton, () => send('transcribe', t.id, { text: transcript.n.value })); });
   if (!t.pending && !['COMPLETED','STOPPED','SKIPPED','PAUSED','AI_WORKING'].includes(t.status)) conversation.append(disclosure('Transkripsi soal', draftForm));
   const take = button('Ambil sebagai operator', () => send('take', t.id, { operationId: t.pending?.id }), '', t.status !== 'WAITING_FOR_OPERATOR'); conversation.append(take);
-  const messages = el('details', undefined, 'messages'); messages.append(el('summary', `Aktivitas (${t.messages.length})`));
+  const messages = el('section', undefined, 'messages'); messages.append(el('h3', 'Chat'));
   for (const m of t.messages) {
     const entry = el('article', undefined, `message ${m.role}`), header = el('div', undefined, 'message-header');
     append(header, el('strong', ({user:'Kamu',agent:'Orchestrator',provider:'Provider'})[m.role] || m.role), el('time', time(m.at)));
@@ -184,7 +184,9 @@ function renderTask(t) {
       await send('attachments', t.id, { files, text: message.n.value });
     } else { if (!message.n.value.trim()) throw new Error('Isi pesan atau pilih file.'); await send(follow.checked && t.provider === 'claude' ? 'outgoing' : 'message', t.id, { text: message.n.value, followup: follow.checked }); }
     message.n.value = ''; moreFiles.n.value = ''; follow.checked = false;
-  }); }); view.append(form);
+  }); });
+  const resultBubble = view.querySelector('.result'); if (resultBubble) view.append(resultBubble);
+  view.append(form);
   if (oldId === t.id) for (const [id, value] of Object.entries(draft)) if (value !== undefined && $(id) && !$(id).readOnly && (id !== 'prompt-draft' || oldRev === String(t.revision))) $(id).value = value;
   if (oldId === t.id) {
     for (const d of view.querySelectorAll('details')) if (openSections.has(detailKey(d)) && !(d.classList.contains('approval') && oldRev !== String(t.revision))) d.open = openSections.get(detailKey(d));
@@ -197,12 +199,13 @@ function renderTask(t) {
 }
 function render() {
   const tasks = Object.values(state.tasks);
-  if (!tasks.some(t => t.id === selected)) selected = tasks[0]?.id;
+  if (selected && !tasks.some(t => t.id === selected)) selected = undefined;
+  $('desk').classList.toggle('in-chat', !!selected); $('task-view').hidden = !selected; $('back-home').hidden = !selected;
   $('count').textContent = tasks.length; $('empty-list').hidden = !!tasks.length;
   $('task-list').replaceChildren();
   for (const t of tasks) {
     const b = button(t.name, () => { selected = t.id; renderSignature = ''; render(); }); b.className = 'task-choice'; b.setAttribute('aria-current', String(t.id === selected));
-    b.append(el('small', statusNames[t.status] || t.status)); $('task-list').append(b);
+    b.append(el('small', statusNames[t.status] || t.status), el('p', (t.description || 'Foto / file soal').slice(0, 100)), el('span', `${t.files.length} file - Buka chat`, 'muted')); b.dataset.status = t.status; $('task-list').append(b);
   }
   $('providers').replaceChildren();
   for (const p of state.providers) {
@@ -304,3 +307,5 @@ $('create-form').addEventListener('submit', async e => {
     selected = taskId; $('create-dialog').close(); $('create-form').reset(); $('profile').value = 'default'; $('create-error').textContent = '';
   } catch (e) { $('create-error').textContent = e.message; } finally { b.disabled = false; }
 });
+
+$('back-home').addEventListener('click', () => { selected = undefined; renderSignature = ''; render(); });

@@ -67,3 +67,5 @@ Photo-only transcription gate, approval, model receipt, question/answer, no-solv
 Auto-accept controls use the existing checkbox/editor styles and 44px label targets. Browser fixture passed creation with auto accept, off-to-review, exact initial edit, follow-up draft edit and on-to-approval. Disabled editing after send claim is covered by state tests; no provider was contacted.
 
 Skip uses the existing task controls, a reason input, and a result-area New question action. Browser fixture verified the reason is shown and the creation dialog opens after skipping; message sending is disabled for SKIPPED. English AI instructions are visible in the prompt-maker dialog.
+
+Black/gray/white redesign: question-card home, dedicated chat and back action, rounded controls, red decision markers, prefilled prompt editor, and result inside chat. New tasks default to manual review. Source syntax and regression suite passed. Browser visual QA was blocked by the computer-use runtime asset-path error, so no new screenshot or visual-pass claim is made.
