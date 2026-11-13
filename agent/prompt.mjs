@@ -13,7 +13,7 @@ export function inferCategory(description, files = []) {
 }
 export function generatePrompt(t) {
   const category = ['pwn','rev','web','crypto','forensics','stego','osint','misc'].includes(t.category) ? t.category : 'misc';
-  return `pls solve this ${category} ctf and find the flag.
+  return `this looks like a ${category} question.
 
 the question is:
 ${t.description}${t.flagFormat ? `

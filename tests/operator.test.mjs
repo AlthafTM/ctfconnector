@@ -139,7 +139,7 @@ test('turning auto accept off while paused keeps the task paused and requires re
  applyCommand(s,cmd('resume',id));assert.equal(t.status,'WAITING_FOR_APPROVAL');assert.equal(t.approvedRevision,null);
 });
 test('Claude gets a short English prompt; Codex alone owns skipping', () => {
- const {t}=create();assert.match(t.prompt,/pls solve this/);assert.match(t.prompt,/the question is:/);assert.equal(t.prompt.includes("SKIP_REQUEST"),false);assert.equal(t.prompt.includes("PROMPT MAKER"),false);assert.ok(t.prompt.includes(t.description));
+ const {t}=create();assert.match(t.prompt,/this looks like a/);assert.match(t.prompt,/the question is:/);assert.equal(t.prompt.includes("SKIP_REQUEST"),false);assert.equal(t.prompt.includes("PROMPT MAKER"),false);assert.ok(t.prompt.includes(t.description));
  const maker=promptMakerInstructions();assert.match(maker,/write all AI prompts and follow-up text in English/);assert.match(maker,/no long intro/);assert.match(maker,/Codex alone decides when to skip, not Claude/);assert.match(maker,/dont skip just because it looks difficult/);assert.match(maker,/operator.mjs skip/);
 });
 test('skip ends an active question, preserves evidence, and blocks sending until explicit retry', () => {

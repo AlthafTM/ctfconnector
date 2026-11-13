@@ -20,3 +20,5 @@
 - Claude receives only a short English prompt in the user's casual style: question, necessary context/scope, and flag/optional solver request. Full instructions, website workflow, and skip policy belong to Codex only. Do not tell Claude to decide when to skip.
 
 - Prompt formatting: "the question is", actual question/title, flag pattern only. Omit screenshot author/points/solves metadata, download labels, attached-file inventory, and submission-form requirements from text sent to Claude. Keep those locally. Track lowercase validation internally, without appending "all lowercase" to the prompt.
+
+- Codex must do a small evidence-based, read-only triage before drafting: inspect the actual artifact/question, save observations locally, identify a plausible specific starting path, and phrase it as a tentative suggestion in the user's voice. Do not merely say solve/fix/find the flag. Do not invent observations or fully solve independently. Publish the exact custom draft with operator.mjs prompt, then respect website approval. This updates the earlier instruction against any independent analysis: preliminary triage is authorized; Claude remains the main solver.
