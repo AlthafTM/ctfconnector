@@ -21,7 +21,7 @@ async function harness(command) {
   nodes.set('task-view', view); nodes.set('notice', notice);
   const source = (await readFile(new URL('../web/app.mjs', import.meta.url), 'utf8')).replace(/^import .*;\r?\n/gm, '').split('function field(')[0];
   const context = vm.createContext({ document: { getElementById: id => nodes.get(id), createElement: () => new Node() }, crypto, setTimeout: () => 1, clearTimeout() {}, Date });
-  vm.runInContext(source + '\nfunction poll() {}\nselected="task"; relay={command: globalThis.command}; globalThis.api={action,send,syncPending,pendingCommands};', Object.assign(context, { command }));
+  vm.runInContext(source + '\nfunction poll() {}\nselected="task"; relay={command: globalThis.command}; globalThis.api={action,send,syncPending,pendingCommands,approvePrompt,setupApproval:(s,fn)=>{state=s;signedIn=true;send=fn;}};', Object.assign(context, { command }));
   return { ...context.api, view, notice, control, nodes };
 }
 
@@ -45,4 +45,21 @@ test('failed relay write restores controls and shows an error instead of success
   await h.action(h.control, () => h.send('approve', 'task'));
   assert.equal(h.pendingCommands.size, 0); assert.equal(h.control.disabled, false);
   assert.equal(h.notice.dataset.kind, 'error'); assert.match(h.notice.textContent, /Network unavailable/);
+});
+
+test('approval accepts textarea line endings without requiring a false edit', async () => {
+  const h = await harness(), task = { id: 'task', revision: 5, prompt: 'CTF\r\nquestion\r\n' }, calls = [];
+  h.setupApproval({ processed: {}, tasks: { task } }, async (...args) => { calls.push(args); });
+  await h.approvePrompt(task, 'CTF\nquestion\n');
+  assert.equal(calls.length, 1); assert.equal(calls[0][0], 'approve'); assert.equal(calls[0][2].revision, 5);
+});
+
+test('approval saves changed text and approves only its ACKed new revision', async () => {
+  const h = await harness(), task = { id: 'task', revision: 5, prompt: 'original' }, state = { processed: {}, tasks: { task } }, calls = [];
+  h.setupApproval(state, async (type, id, payload) => {
+    calls.push({ type, payload });
+    if (type === 'edit') { state.tasks.task = { ...task, prompt: payload.text, revision: 6 }; state.processed.editId = { status: 'ok' }; return 'editId'; }
+  });
+  await h.approvePrompt(task, 'edited prompt');
+  assert.deepEqual(calls.map(c => c.type), ['edit', 'approve']); assert.equal(calls[1].payload.revision, 6);
 });

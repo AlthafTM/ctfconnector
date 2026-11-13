@@ -10,6 +10,25 @@ function disclosure(title, ...children) { const d = el('details'); d.append(el('
 const statusNames = { WAITING_FOR_TRANSCRIPTION: 'Baca foto', WAITING_FOR_APPROVAL: 'Review prompt', WAITING_FOR_OPERATOR: 'Menunggu Codex', AI_WORKING: 'Dikerjakan', WAITING_FOR_USER: 'Butuh jawaban', RATE_LIMITED: 'Limit provider', PAUSED: 'Dijeda', STOPPED: 'Dihentikan', SKIPPED: 'Skipped', COMPLETED: 'Selesai', FAILED: 'Gagal', SUBMITTING_PROMPT: 'Menyiapkan' };
 function time(at) { return at ? new Date(at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'medium' }) : 'Belum ada'; }
 function notify(text, kind = 'info') { $('notice').textContent = text; $('notice').dataset.kind = kind; }
+const normalizeLines = text => text.replace(/\r\n?/g, '\n');
+async function approvePrompt(task, text) {
+  if (!text.trim()) throw new Error('Prompt tidak boleh kosong.');
+  let current = task;
+  if (normalizeLines(text) !== normalizeLines(task.prompt)) {
+    const id = await send('edit', task.id, { text, revision: task.revision });
+    notify('Menyimpan edit sebelum approval…', 'loading');
+    const deadline = Date.now() + 60000;
+    while (!state.processed[id]) {
+      if (Date.now() > deadline) throw new Error('Edit sudah dikirim tetapi belum dikonfirmasi. Approval belum dikirim. Tunggu worker, lalu Setujui lagi.');
+      await new Promise(resolve => setTimeout(resolve, 300));
+      if (!signedIn) throw new Error('Koneksi ditutup. Approval belum dikirim.');
+    }
+    if (state.processed[id].status !== 'ok') throw new Error(state.processed[id].error);
+    current = state.tasks[task.id];
+    if (normalizeLines(current.prompt) !== normalizeLines(text)) throw new Error('Prompt berubah di perangkat lain. Review ulang sebelum approval.');
+  }
+  await send('approve', task.id, { revision: current.revision });
+}
 function busy(button, label = 'Memproses…') {
   const original = button.textContent, disabled = button.disabled;
   button.disabled = true; button.setAttribute('aria-busy', 'true'); button.textContent = label;
@@ -138,10 +157,7 @@ function renderTask(t) {
     const bar = el('div', undefined, 'toolbar');
     bar.append(button('Salin prompt', () => navigator.clipboard.writeText(n.value).then(() => notify('Prompt disalin.'))),
       button('Simpan perubahan', () => send('edit', t.id, { text: n.value, revision: t.revision }), '', n.readOnly),
-      button('Setujui prompt', async () => {
-        if (n.value !== t.prompt) throw new Error('Simpan edit dulu dan tunggu revisi baru sebelum approval.');
-        await send('approve', t.id, { revision: t.revision });
-      }, 'primary', t.status !== 'WAITING_FOR_APPROVAL' || state.emergency),
+      button('Setujui prompt', () => approvePrompt(t, n.value), 'primary', t.status !== 'WAITING_FOR_APPROVAL' || state.emergency),
       button('Tolak prompt', () => send('reject', t.id), '', t.status !== 'WAITING_FOR_APPROVAL'));
     approval.append(bar); view.append(approval);
   }
